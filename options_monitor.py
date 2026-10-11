@@ -12,68 +12,68 @@ BALE_CHANNEL_ID = os.environ.get("BALE_CHANNEL_ID")
 
 def get_options_data():
     """
-    دریافت داده‌های رسمی آپشن با استفاده از مسیرهای عبور از فیلتر آی‌پی خارجی
+    دریافت داده‌های دیده‌بان اختیار معامله از درگاه رسمی بورس تهران (بدون مسدودی خارج کشور)
     """
-    # مسیرهای مختلف برای دور زدن مسدودی آی‌پی سرور گیت‌هاب
-    endpoints = [
-        # آدرس پروکسی‌شده بدون فیلتر ژئو
-        "https://api.allorigins.win/raw?url=" + requests.utils.quote("https://cdn.tsetmc.com/api/Instrument/GetInstrumentOptionMarketWatch"),
-        # آدرس مستقیم سازمانی
-        "https://old.tsetmc.com/api/Instrument/GetInstrumentOptionMarketWatch",
-        # مسیر بک‌آپ
-        "https://cdn.tsetmc.com/api/Instrument/GetInstrumentOptionMarketWatch"
-    ]
-
+    # درگاه رسمی بورس تهران که دسترسی سرورهای خارجی به آن باز است
+    url = "https://webgw.tse.ir/InstrumentProvider/api/v1/MarketWatch/MarketWatchOption/fa"
+    
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
+        "Origin": "https://tse.ir",
+        "Referer": "https://tse.ir/"
     }
 
-    for url in endpoints:
-        try:
-            print(f"Trying endpoint: {url[:60]}...")
-            res = requests.get(url, headers=headers, timeout=25)
-            if res.status_code == 200:
-                data = res.json()
-                if isinstance(data, dict) and "instrumentOptionMarketWatch" in data:
-                    market_list = data.get("instrumentOptionMarketWatch", [])
-                elif isinstance(data, list):
-                    market_list = data
-                else:
+    try:
+        print(f"Connecting to official gateway: {url} ...")
+        res = requests.get(url, headers=headers, timeout=25)
+        
+        if res.status_code == 200:
+            data = res.json()
+            
+            # درگاه ممکن است مستقیماً لیست را در روت یا در کلید data بگذارد
+            items = []
+            if isinstance(data, list):
+                items = data
+            elif isinstance(data, dict):
+                items = data.get("data") or data.get("marketWatchOption") or data.get("items") or []
+
+            rows = []
+            for item in items:
+                # خواندن نام نماد
+                symbol = item.get("lVal18AFC") or item.get("symbol") or item.get("nemad") or ""
+                symbol = str(symbol).strip()
+                if not symbol:
                     continue
 
-                rows = []
-                for item in market_list:
-                    # نماد اختیار خرید (Call)
-                    if item.get("insCode"):
-                        rows.append({
-                            "symbol": str(item.get("lVal18AFC", "")).strip(),
-                            "volume": float(item.get("qTotTran5J", 0) or 0),
-                            "value": float(item.get("qTotCap", 0) or 0),
-                            "oi": float(item.get("notOPnIntrst", 0) or 0)
-                        })
-                    # نماد اختیار فروش (Put)
-                    if item.get("pInsCode"):
-                        rows.append({
-                            "symbol": str(item.get("pLVal18AFC", "")).strip(),
-                            "volume": float(item.get("pQTotTran5J", 0) or 0),
-                            "value": float(item.get("pQTotCap", 0) or 0),
-                            "oi": float(item.get("pNotOPnIntrst", 0) or 0)
-                        })
+                # حجم، ارزش و موقعیت باز
+                volume = float(item.get("qTotTran5J") or item.get("tedadMoamele") or item.get("hajmMoamele") or item.get("volume") or 0)
+                value = float(item.get("qTotCap") or item.get("arzeshMoamele") or item.get("value") or 0)
+                oi = float(item.get("notOPnIntrst") or item.get("moqeiatBaz") or item.get("openInterest") or item.get("oi") or 0)
 
-                df = pd.DataFrame(rows)
-                df = df[df["symbol"] != ""]
-                if not df.empty:
-                    print(f"Successfully loaded {len(df)} option contracts.")
-                    return df
-        except Exception as e:
-            print(f"Failed on endpoint: {e}")
-            time.sleep(1)
+                rows.append({
+                    "symbol": symbol,
+                    "volume": volume,
+                    "value": value,
+                    "oi": oi
+                })
+
+            df = pd.DataFrame(rows)
+            if not df.empty:
+                print(f"Successfully retrieved {len(df)} contracts.")
+                return df
+            else:
+                print("Response received but no contracts found.")
+        else:
+            print(f"Gateway returned status code: {res.status_code}")
+            
+    except Exception as e:
+        print(f"Error fetching from official gateway: {e}")
 
     return None
 
 def format_number(val):
-    """فرمت‌دهی اعداد برای نمایش استاندارد و خوانا"""
+    """فرمت‌دهی اعداد به صورت خلاصه و استاندارد"""
     try:
         val = float(val)
         if val >= 1_000_000_000:
@@ -88,7 +88,7 @@ def format_number(val):
         return str(val)
 
 def generate_dashboard(df, output_path="options_dashboard.png"):
-    """رسم تابلوی گرافیکی سه‌گانه با ظاهر دارک و خوانا"""
+    """تولید تابلوی ۳ بخشی دارک-مود برای تلگرام و بله"""
     top_value = df.sort_values(by="value", ascending=False).head(10).reset_index(drop=True)
     top_volume = df.sort_values(by="volume", ascending=False).head(10).reset_index(drop=True)
     top_oi = df.sort_values(by="oi", ascending=False).head(10).reset_index(drop=True)
@@ -167,14 +167,14 @@ def generate_dashboard(df, output_path="options_dashboard.png"):
     plt.subplots_adjust(top=0.88, bottom=0.06, left=0.03, right=0.97, wspace=0.18)
     plt.savefig(output_path, facecolor=fig.get_facecolor(), edgecolor='none', bbox_inches='tight')
     plt.close()
-    print(f"Dashboard saved to {output_path}")
+    print(f"Dashboard saved successfully as {output_path}")
 
 def send_to_telegram_and_bale(image_path, caption):
-    """ارسال تصویر به کانال‌های مقصد"""
+    """ارسال به تلگرام و بله"""
     if not os.path.exists(image_path):
         return
 
-    # تلگرام
+    # ارسال تلگرام
     if BOT_TOKEN and CHANNEL_ID:
         try:
             with open(image_path, "rb") as img:
@@ -191,7 +191,7 @@ def send_to_telegram_and_bale(image_path, caption):
         except Exception as e:
             print(f"Telegram exception: {e}")
 
-    # بله
+    # ارسال بله
     if BALE_BOT_TOKEN and BALE_CHANNEL_ID:
         try:
             with open(image_path, "rb") as img:
@@ -217,7 +217,7 @@ def main():
         caption = "📊 تابلوی برترین‌های اختیار معامله (آپشن)\n⚡ ۱۰ نماد برتر ارزش معاملات، حجم و موقعیت‌های باز\n⏱ به‌روزرسانی زنده بازار مشتقه"
         send_to_telegram_and_bale(img_file, caption)
     else:
-        print("No options data available or all endpoints failed.")
+        print("No options data available or failed to retrieve.")
 
 if __name__ == "__main__":
     main()
