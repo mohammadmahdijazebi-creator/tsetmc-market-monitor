@@ -71,63 +71,44 @@ def capture_all():
         page = context.new_page()
 
         # ==============================================================
-        # ۱. تریدرز آرنا (کاملاً فریز شده - ۳ بخش متوالی)
+        # ۱. تریدرز آرنا (فریز شده - ۳ بخش متوالی)
         # ==============================================================
         try:
             print("Processing Traders Arena...")
             page.goto("https://tradersarena.ir/", wait_until="networkidle", timeout=60000)
             time.sleep(6)
 
-            # بخش اول: ویجت‌ها و آمارهای کلیدی
             page.screenshot(path="traders_arena_1.png", full_page=False)
-            send_image(
-                "traders_arena_1.png",
-                "📊 *تریدرز آرنا - بخش ۱ (آمارهای کلیدی بازار)*\nمنبع: tradersarena.ir"
-            )
+            send_image("traders_arena_1.png", "📊 *تریدرز آرنا - بخش ۱ (آمارهای کلیدی بازار)*\nمنبع: tradersarena.ir")
 
-            # بخش دوم: نمودارها و جریان نقدینگی
             page.evaluate("window.scrollTo(0, 750);")
             time.sleep(3)
             page.screenshot(path="traders_arena_2.png", full_page=False)
-            send_image(
-                "traders_arena_2.png",
-                "📉 *تریدرز آرنا - بخش ۲ (نمودارهای جریان نقدینگی)*\nمنبع: tradersarena.ir"
-            )
+            send_image("traders_arena_2.png", "📉 *تریدرز آرنا - بخش ۲ (نمودارهای جریان نقدینگی)*\nمنبع: tradersarena.ir")
 
-            # بخش سوم: صف‌ها و جزئیات
             page.evaluate("window.scrollTo(0, 1500);")
             time.sleep(3)
             page.screenshot(path="traders_arena_3.png", full_page=False)
-            send_image(
-                "traders_arena_3.png",
-                "📋 *تریدرز آرنا - بخش ۳ (صف‌های خرید و فروش)*\nمنبع: tradersarena.ir"
-            )
+            send_image("traders_arena_3.png", "📋 *تریدرز آرنا - بخش ۳ (صف‌های خرید و فروش)*\nمنبع: tradersarena.ir")
         except Exception as e:
             print(f"Error in Traders Arena flow: {e}")
 
         # ==============================================================
-        # ۲. صفحه اصلی TSETMC در دو بخش
+        # ۲. صفحه اصلی TSETMC در دو بخش (با انتظار برای لود کامل SPA)
         # ==============================================================
         try:
             print("Processing TSETMC Home...")
-            page.goto("https://www.tsetmc.com/#", wait_until="load", timeout=60000)
-            time.sleep(7)
+            page.goto("https://www.tsetmc.com/", wait_until="domcontentloaded", timeout=60000)
+            # صبر برای لود کامل داده‌های بورس در صفحه پویا
+            time.sleep(10)
 
-            # بخش اول: بالای صفحه (شاخص‌ها، وضعیت بازار و بیشترین تاثیر)
             page.screenshot(path="tsetmc_main_top.png", full_page=False)
-            send_image(
-                "tsetmc_main_top.png",
-                "🏛 *TSETMC - بخش ۱ (شاخص‌های کل، وضعیت بازار و نمادهای موثر)*\nمنبع: tsetmc.com"
-            )
+            send_image("tsetmc_main_top.png", "🏛 *TSETMC - بخش ۱ (شاخص‌های کل، وضعیت بازار و نمادهای موثر)*\nمنبع: tsetmc.com")
 
-            # بخش دوم: اسکرول به پایین (نمادهای پرتراکنش و فرابورس)
             page.evaluate("window.scrollTo(0, 750);")
             time.sleep(3)
             page.screenshot(path="tsetmc_main_bottom.png", full_page=False)
-            send_image(
-                "tsetmc_main_bottom.png",
-                "🏛 *TSETMC - بخش ۲ (نمادهای پرتراکنش و معاملات فرابورس)*\nمنبع: tsetmc.com"
-            )
+            send_image("tsetmc_main_bottom.png", "🏛 *TSETMC - بخش ۲ (نمادهای پرتراکنش و معاملات فرابورس)*\nمنبع: tsetmc.com")
         except Exception as e:
             print(f"Error in TSETMC Main: {e}")
 
@@ -136,28 +117,16 @@ def capture_all():
         # ==============================================================
         try:
             print("Processing Ahrom symbol...")
-            page.goto(
-                "https://www.tsetmc.com/instInfo/17914401175772326",
-                wait_until="load",
-                timeout=60000
-            )
-            time.sleep(7)
+            page.goto("https://www.tsetmc.com/instInfo/17914401175772326", wait_until="domcontentloaded", timeout=60000)
+            time.sleep(10)
 
-            # بخش اول: تابلوی قیمت، دامنه، صف‌های خرید و فروش
             page.screenshot(path="ahrom_part1.png", full_page=False)
-            send_image(
-                "ahrom_part1.png",
-                "⚡ *نماد اهرم - بخش ۱ (تابلو قیمت، دامنه نوسان و صف‌ها)*\nمنبع: tsetmc.com"
-            )
+            send_image("ahrom_part1.png", "⚡ *نماد اهرم - بخش ۱ (تابلو قیمت، دامنه نوسان و صف‌ها)*\nمنبع: tsetmc.com")
 
-            # بخش دوم: نمودار روزانه، رفتار حقیقی/حقوقی و سوابق
             page.evaluate("window.scrollTo(0, 650);")
             time.sleep(3)
             page.screenshot(path="ahrom_part2.png", full_page=False)
-            send_image(
-                "ahrom_part2.png",
-                "⚡ *نماد اهرم - بخش ۲ (نمودار قیمت، حقیقی/حقوقی و معاملات)*\nمنبع: tsetmc.com"
-            )
+            send_image("ahrom_part2.png", "⚡ *نماد اهرم - بخش ۲ (نمودار قیمت، حقیقی/حقوقی و معاملات)*\nمنبع: tsetmc.com")
         except Exception as e:
             print(f"Error in Ahrom symbol: {e}")
 
@@ -166,28 +135,16 @@ def capture_all():
         # ==============================================================
         try:
             print("Processing Khodro symbol...")
-            page.goto(
-                "https://www.tsetmc.com/instInfo/65883838195688438",
-                wait_until="load",
-                timeout=60000
-            )
-            time.sleep(7)
+            page.goto("https://www.tsetmc.com/instInfo/65883838195688438", wait_until="domcontentloaded", timeout=60000)
+            time.sleep(10)
 
-            # بخش اول: تابلوی قیمت، سفارش‌ها و اطلاعات پایه
             page.screenshot(path="khodro_part1.png", full_page=False)
-            send_image(
-                "khodro_part1.png",
-                "🚗 *نماد خودرو - بخش ۱ (تابلو قیمت، دامنه نوسان و صف‌ها)*\nمنبع: tsetmc.com"
-            )
+            send_image("khodro_part1.png", "🚗 *نماد خودرو - بخش ۱ (تابلو قیمت، دامنه نوسان و صف‌ها)*\nمنبع: tsetmc.com")
 
-            # بخش دوم: نمودار، حجم‌ها و سهامداران/حقیقی-حقوقی
             page.evaluate("window.scrollTo(0, 650);")
             time.sleep(3)
             page.screenshot(path="khodro_part2.png", full_page=False)
-            send_image(
-                "khodro_part2.png",
-                "🚗 *نماد خودرو - بخش ۲ (نمودار قیمت، حقیقی/حقوقی و معاملات)*\nمنبع: tsetmc.com"
-            )
+            send_image("khodro_part2.png", "🚗 *نماد خودرو - بخش ۲ (نمودار قیمت، حقیقی/حقوقی و معاملات)*\nمنبع: tsetmc.com")
         except Exception as e:
             print(f"Error in Khodro symbol: {e}")
 
