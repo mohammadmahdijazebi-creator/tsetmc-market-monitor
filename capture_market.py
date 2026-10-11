@@ -24,7 +24,7 @@ def send_image(image_path, caption):
                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
                     data={"chat_id": CHANNEL_ID, "caption": caption},
                     files={"photo": img},
-                    timeout=50
+                    timeout=60
                 )
             if res.status_code == 200:
                 print(f"Telegram sent: {image_path}")
@@ -41,7 +41,7 @@ def send_image(image_path, caption):
                     f"https://tapi.bale.ai/bot{BALE_BOT_TOKEN}/sendPhoto",
                     data={"chat_id": BALE_CHANNEL_ID, "caption": caption},
                     files={"photo": img},
-                    timeout=50
+                    timeout=60
                 )
             if res.status_code == 200:
                 print(f"Bale sent: {image_path}")
@@ -51,45 +51,56 @@ def send_image(image_path, caption):
             print(f"Bale exception on {image_path}: {e}")
 
 def capture_all():
-    print("Starting browser session...")
+    print("Starting robust browser session...")
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
             args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
         )
         
-        # ابعاد استاندارد دسکتاپ برای ثبت واضح نمودارها بدون دراز شدن بیش از حد
+        # رزولوشن استاندارد دسکتاپ واضح
         context = browser.new_context(
-            viewport={"width": 1400, "height": 900},
+            viewport={"width": 1366, "height": 768},
+            device_scale_factor=2,  # برای جلوگیری از تاری تصویر و افزایش وضوح متن‌ها
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         )
         page = context.new_page()
 
-        # ۱. تصویربرداری از Traders Arena (بخش اول)
+        # ---------------------------------------------
+        # ۱. سایت Traders Arena (بخش اول و دوم تفکیک‌شده)
+        # ---------------------------------------------
         try:
             print("Loading Traders Arena...")
             page.goto("https://tradersarena.ir/", wait_until="networkidle", timeout=60000)
-            time.sleep(5)
+            time.sleep(6)
             
-            # ثبت بخش بالای صفحه (ویجت‌ها و جدول اصلی)
-            page.screenshot(path="traders_arena_top.png", full_page=False)
-            send_image("traders_arena_top.png", "📊 *داشبورد آمارهای کلیدی و جدول بازار*\nمنبع: tradersarena.ir")
+            # عکس بخش اول (بالای صفحه)
+            page.screenshot(path="traders_arena_1.png", full_page=False)
+            send_image("traders_arena_1.png", "📊 *تریدرز آرنا - بخش اول (جدول‌ها و آمارهای کلیدی)*\nمنبع: tradersarena.ir")
             
-            # اسکرول به پایین برای ثبت بخش دوم (نمودارها و صف‌ها)
-            page.evaluate("window.scrollBy(0, 800)")
+            # اسکرول به پایین برای بخش دوم
+            page.evaluate("window.scrollTo(0, 750);")
             time.sleep(3)
-            page.screenshot(path="traders_arena_bottom.png", full_page=False)
-            send_image("traders_arena_bottom.png", "📉 *نمودارهای جریان نقدینگی و صف‌های خرید و فروش*\nمنبع: tradersarena.ir")
-        except Exception as e:
-            print(f"Error in Traders Arena capture: {e}")
+            page.screenshot(path="traders_arena_2.png", full_page=False)
+            send_image("traders_arena_2.png", "📉 *تریدرز آرنا - بخش دوم (نمودارها و جریان نقدینگی)*\nمنبع: tradersarena.ir")
 
-        # ۲. تصویربرداری از Bourse Trader
+            # اسکرول به پایین‌تر برای بخش سوم
+            page.evaluate("window.scrollTo(0, 1500);")
+            time.sleep(3)
+            page.screenshot(path="traders_arena_3.png", full_page=False)
+            send_image("traders_arena_3.png", "📋 *تریدرز آرنا - بخش سوم (صف‌ها و جزئیات بازار)*\nمنبع: tradersarena.ir")
+        except Exception as e:
+            print(f"Error in Traders Arena: {e}")
+
+        # ---------------------------------------------
+        # ۲. سایت Bourse Trader
+        # ---------------------------------------------
         try:
             print("Loading Bourse Trader...")
             page.goto("https://bourse-trader.ir/", wait_until="networkidle", timeout=60000)
             time.sleep(6)
             
-            # بستن پاپ‌آپ احتمالی بروزرسانی
+            # بستن پاپ‌آپ‌های احتمالی
             try:
                 page.keyboard.press("Escape")
                 page.evaluate("document.querySelectorAll('.modal, .swal2-container, div[role=\\'dialog\\']').forEach(el => el.remove());")
@@ -98,22 +109,24 @@ def capture_all():
                 pass
                 
             page.screenshot(path="bourse_trader.png", full_page=False)
-            send_image("bourse_trader.png", "📈 *گزارش روند، سرانه‌ها و ورود پول حقیقی*\nمنبع: bourse-trader.ir")
+            send_image("bourse_trader.png", "📈 *بورس تریدر - نمودارها و سرانه‌های بازار*\nمنبع: bourse-trader.ir")
         except Exception as e:
-            print(f"Error in Bourse Trader capture: {e}")
+            print(f"Error in Bourse Trader: {e}")
 
-        # ۳. تصویربرداری از TSETMC
+        # ---------------------------------------------
+        # ۳. سایت TSETMC
+        # ---------------------------------------------
         try:
             print("Loading TSETMC...")
             page.goto("https://old.tsetmc.com/Loader.aspx?ParTree=151311&i=0", wait_until="load", timeout=60000)
-            time.sleep(5)
+            time.sleep(6)
             page.screenshot(path="tsetmc.png", full_page=False)
-            send_image("tsetmc.png", "🏛 *دیده‌بان در یک نگاه بورس و فرابورس*\nمنبع: tsetmc.com")
+            send_image("tsetmc.png", "🏛 *دیده‌بان بازار بورس و فرابورس (TSETMC)*\nمنبع: tsetmc.com")
         except Exception as e:
-            print(f"Error in TSETMC capture: {e}")
+            print(f"Error in TSETMC: {e}")
 
         browser.close()
-        print("All steps completed successfully.")
+        print("All capture routines finished.")
 
 if __name__ == "__main__":
     capture_all()
