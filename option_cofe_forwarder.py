@@ -6,8 +6,11 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
 
-CHANNEL_USERNAME = "option_cofe"
-CHANNEL_LABEL = "کافه آپشن"
+# لیست کانال‌های تحت رصد (نام کاربری و برچسب نمایشی)
+CHANNELS = [
+    {"username": "option_cofe", "label": "کافه آپشن"},
+    {"username": "MomeniMohsen", "label": "محسن مومنی"},
+]
 
 STATE_FILE = Path("option_cofe_state.json")
 REQUEST_TIMEOUT = 45
@@ -29,19 +32,26 @@ HEADERS = {
 
 
 def load_state():
+    """خواندن وضعیت کانال‌ها با پشتیبانی از ساختار قبلی و چندکاناله"""
     if not STATE_FILE.exists():
-        return 0
+        return {}
     try:
         data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-        return int(data.get("last_id", 0))
-    except Exception:
-        return 0
+        # سازگاری با فرمت قدیمی تک‌کاناله
+        if "last_id" in data and not any(k in data for k in ["channels"]):
+            return {"option_cofe": int(data.get("last_id", 0))}
+        return data.get("channels", {})
+    except Exception as e:
+        print(f"خطا در خواندن فایل وضعیت: {e}")
+        return {}
 
 
-def save_state(last_id):
+def save_state(channels_state):
+    """ذخیره امن وضعیت تمام کانال‌ها"""
     temp = STATE_FILE.with_suffix(".tmp")
+    data = {"channels": channels_state}
     temp.write_text(
-        json.dumps({"last_id": last_id}, ensure_ascii=False, indent=2),
+        json.dumps(data, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     temp.replace(STATE_FILE)
@@ -62,8 +72,8 @@ def get_message_text(message_el):
     return text_el.get_text("\n", strip=True)
 
 
-def fetch_channel_messages():
-    url = f"https://t.me/s/{CHANNEL_USERNAME}"
+def fetch_channel_messages(username):
+    url = f"https://t.me/s/{username}"
     response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
@@ -89,7 +99,6 @@ def parse_posts(messages, last_id):
         image_url = extract_image_url(photo_el)
         text = get_message_text(msg)
 
-        # اگر پست نه عکس داشت و نه متن (مثلاً پیام سرویسی یا خالی)، رد شود
         if not image_url and not text:
             continue
 
@@ -102,8 +111,8 @@ def parse_posts(messages, last_id):
     return sorted(posts, key=lambda x: x["id"])
 
 
-def format_content(text, is_photo=False):
-    source_tag = f"📎 منبع: @{CHANNEL_USERNAME} ({CHANNEL_LABEL})"
+def format_content(text, username, label, is_photo=False):
+    source_tag = f"📎 منبع: @{username} ({label})"
     full_text = f"{text}\n\n{source_tag}" if text else source_tag
     max_len = MAX_CAPTION_LENGTH if is_photo else MAX_TEXT_LENGTH
 
@@ -124,7 +133,7 @@ def send_photo_dest(endpoint, token, chat_id, image_path, caption, name):
                 timeout=REQUEST_TIMEOUT,
             )
         res.raise_for_status()
-        print(f"[{name}] عکس پست با موفقیت ارسال شد.")
+        print(f"[{name}] عکس ارسال شد.")
         return True
     except Exception as e:
         print(f"[{name}] خطا در ارسال عکس: {e}")
@@ -141,36 +150,34 @@ def send_message_dest(endpoint, token, chat_id, text, name):
             timeout=REQUEST_TIMEOUT,
         )
         res.raise_for_status()
-        print(f"[{name}] متن پست با موفقیت ارسال شد.")
+        print(f"[{name}] پیام متنی ارسال شد.")
         return True
     except Exception as e:
         print(f"[{name}] خطا در ارسال متن: {e}")
         return False
 
 
-def deliver_post(post):
+def deliver_post(post, username, label):
     is_photo = bool(post["image_url"])
-    caption_or_text = format_content(post["text"], is_photo=is_photo)
+    caption_or_text = format_content(post["text"], username, label, is_photo=is_photo)
     results = []
 
     if is_photo:
-        temp_img = Path(f"cofe_{post['id']}.jpg")
+        temp_img = Path(f"temp_{username}_{post['id']}.jpg")
         try:
             r = requests.get(post["image_url"], headers=HEADERS, timeout=REQUEST_TIMEOUT)
             r.raise_for_status()
             temp_img.write_bytes(r.content)
 
-            # ارسال عکس به تلگرام و بله
             r1 = send_photo_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, temp_img, caption_or_text, "Telegram")
             r2 = send_photo_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, temp_img, caption_or_text, "Bale")
             results.extend([r1, r2])
         except Exception as e:
-            print(f"خطا در دانلود عکس پست {post['id']}: {e}")
+            print(f"خطا در دانلود یا ارسال تصویر {post['id']}: {e}")
             return False
         finally:
             temp_img.unlink(missing_ok=True)
     else:
-        # ارسال پیام متنی به تلگرام و بله
         r1 = send_message_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, caption_or_text, "Telegram")
         r2 = send_message_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, caption_or_text, "Bale")
         results.extend([r1, r2])
@@ -178,36 +185,49 @@ def deliver_post(post):
     return any(results)
 
 
-def main():
-    last_id = load_state()
-    print(f"بررسی کانال @{CHANNEL_USERNAME} | آخرین پست ثبت‌شده: {last_id}")
+def process_channel(chan_info, channels_state):
+    username = chan_info["username"]
+    label = chan_info["label"]
+    last_id = int(channels_state.get(username, 0))
+
+    print(f"\n--- بررسی کانال @{username} ({label}) | آخرین شناسه: {last_id} ---")
 
     try:
-        messages = fetch_channel_messages()
-        posts = parse_posts(messages, last_id)
+        messages = fetch_channel_messages(username)
     except Exception as e:
-        print(f"خطا در دریافت صفحه کانال: {e}")
-        return
+        print(f"خطا در بارگذاری پیام‌های @{username}: {e}")
+        return last_id
 
-    # در اولین اجرا برای جلوگیری از ارسال کل آرشیو گذشته کانال
+    # اگر بار اول است، شناسه آخرین پست فعلی را ذخیره می‌کنیم تا تاریخچه ارسال نشود
     if last_id == 0:
-        if posts:
-            new_id = posts[-1]["id"]
-            save_state(new_id)
-            print(f"اجرای اول: آخرین شناسه ({new_id}) ذخیره شد. ارسال از پست‌های بعدی آغاز می‌شود.")
-        return
+        latest_posts = parse_posts(messages, 0)
+        latest_id = latest_posts[-1]["id"] if latest_posts else 0
+        print(f"اجرای اول برای @{username}: شناسه {latest_id} ثبت شد. پست‌های جدید از این به بعد ارسال می‌شوند.")
+        return latest_id
 
+    posts = parse_posts(messages, last_id)
     new_last_id = last_id
+
     for post in posts:
-        print(f"در حال پردازش پست شماره {post['id']}...")
-        ok = deliver_post(post)
+        print(f"در حال پردازش پست {post['id']} از @{username}...")
+        ok = deliver_post(post, username, label)
         if ok:
             new_last_id = max(new_last_id, post["id"])
-            save_state(new_last_id)
         else:
-            print(f"پست {post['id']} ارسال نشد؛ شناسه ذخیره نمی‌شود.")
+            print(f"پست {post['id']} ارسال نشد.")
 
-    print("پایان پردازش کافه آپشن.")
+    return new_last_id
+
+
+def main():
+    channels_state = load_state()
+
+    for chan in CHANNELS:
+        new_id = process_channel(chan, channels_state)
+        channels_state[chan["username"]] = new_id
+
+    save_state(channels_state)
+    print("\nپایان بررسی همه کانال‌ها. وضعیت ذخیره شد.")
 
 
 if __name__ == "__main__":
