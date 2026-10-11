@@ -1,0 +1,43 @@
+name: TSETMC Market Monitor
+
+on:
+  schedule:
+    # ساعت بازار بورس ایران: شنبه تا چهارشنبه (روزهای ۶ و ۰ تا ۳ در استاندارد کرن گیت‌هاب)
+    # از ساعت ۹:۰۰ صبح تا ۱۲:۳۰ ظهر ایران (به وقت UTC می‌شود ۵:۳۰ تا ۹:۰۰)
+    # هر ۳۰ دقیقه یکبار در زمان بازار
+    - cron: '30 5 * * 0,1,2,3,6'
+    - cron: '0 6 * * 0,1,2,3,6'
+    - cron: '30 6 * * 0,1,2,3,6'
+    - cron: '0 7 * * 0,1,2,3,6'
+    - cron: '30 7 * * 0,1,2,3,6'
+    - cron: '0 8 * * 0,1,2,3,6'
+    - cron: '30 8 * * 0,1,2,3,6'
+    - cron: '0 9 * * 0,1,2,3,6'
+  workflow_dispatch: # امکان اجرای دستی در هر لحظه
+
+jobs:
+  run-market-monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Run Market Monitor Script
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+          BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
+          BALE_CHANNEL_ID: ${{ secrets.BALE_CHANNEL_ID }}
+        run: |
+          python market_summary.py
