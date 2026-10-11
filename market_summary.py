@@ -10,16 +10,21 @@ BALE_BOT_TOKEN = os.environ.get("BALE_BOT_TOKEN")
 BALE_CHANNEL_ID = os.environ.get("BALE_CHANNEL_ID")
 
 headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Referer': 'https://tsetmc.com/'
 }
 
-def fetch_with_retry(url, retries=3, delay=3):
-    """Fetches URL with retry logic for network instability."""
+def fetch_with_retry(url, retries=4, delay=4):
+    """Fetches URL with retry logic and robust timeout for international runners."""
     for attempt in range(retries):
         try:
-            res = requests.get(url, headers=headers, timeout=15)
+            res = requests.get(url, headers=headers, timeout=20)
             if res.status_code == 200:
                 return res.json()
+            else:
+                print(f"Status code {res.status_code} for {url}")
         except Exception as e:
             print(f"Attempt {attempt+1} failed for {url}: {e}")
         time.sleep(delay)
@@ -81,7 +86,7 @@ def generate_report():
     client_flow = fetch_client_type_summary()
     
     if not overview:
-        return "⚠️ در حال حاضر ارتباط با سرور بورس برقرار نشد (تلاش‌های مجدد موفق نبود)."
+        return "⚠️ در حال حاضر ارتباط با سرور بورس برقرار نشد (محدودیت دسترسی بین‌المللی)."
         
     date_str = datetime.now().strftime("%Y/%m/%d - %H:%M")
     
@@ -124,7 +129,6 @@ def send_telegram(text):
     payload = {
         'chat_id': CHANNEL_ID,
         'text': text
-        # بدون parse_mode برای جلوگیری از خطای کاراکترهای خاص
     }
     try:
         r = requests.post(url, json=payload, timeout=10)
