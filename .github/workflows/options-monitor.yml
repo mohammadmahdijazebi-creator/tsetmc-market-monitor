@@ -1,19 +1,21 @@
-name: Options Market Watch Monitor
+name: Options Market Monitor
 
 on:
   schedule:
-    # اجرا هر ۵ دقیقه در ساعات بازار (شنبه تا چهارشنبه یا یکشنبه تا پنج‌شنبه)
+    # اجرا هر ۵ دقیقه در ساعات معاملاتی (۸:۳۰ الی ۱۸:۰۰ به وقت تهران / ۵:۰۰ الی ۱۴:۳۰ به وقت UTC)
+    # یکشنبه تا پنج‌شنبه (روزهای 0 تا 4 در کران)
     - cron: '*/5 5-14 * * 0-4'
-  workflow_dispatch:
+  workflow_dispatch: # امکان اجرای دستی با دکمه Run workflow
 
 jobs:
-  run-options:
+  run-options-monitor:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
@@ -21,7 +23,9 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests pandas matplotlib
+          pip install playwright requests
+          playwright install chromium
+          playwright install-deps chromium
 
       - name: Run Options Monitor Script
         env:
