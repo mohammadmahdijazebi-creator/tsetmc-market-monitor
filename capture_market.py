@@ -50,26 +50,37 @@ def send_image(image_path, caption):
         except Exception as e:
             print(f"Bale exception on {image_path}: {e}")
 
-def clean_popups(page):
+def kill_rahavard_popups(page):
     """
-    بستن پاپ‌آپ‌ها، راهنماها و اخطارها با اسکریپت و کلید Escape
+    بستن و حذف قطعی تمام پاپ‌آپ‌ها، تورهای راهنما و اخطارهای ره‌آورد
     """
     try:
-        # فشردن چندباره Escape برای بستن مودال‌ها
-        for _ in range(3):
-            page.keyboard.press("Escape")
-            time.sleep(0.5)
+        # مکث کوتا برای ظاهر شدن کامل پاپ‌آپ‌ها
+        time.sleep(3)
         
-        # حذف المان‌های پاپ‌آپ از DOM در صورت باقی ماندن
+        # کلیک روی دکمه‌های تایید یا بستن پاپ‌آپ‌ها اگر وجود داشته باشند
         page.evaluate("""() => {
-            const selectors = ['.modal', '.swal2-container', '.introjs-tooltip', '[class*="popup"]', '[class*="overlay"]'];
-            selectors.forEach(sel => {
-                document.querySelectorAll(sel).forEach(el => el.remove());
+            // کلیک روی دکمه تایید راهنماها
+            const buttons = Array.from(document.querySelectorAll('button, div, span'));
+            buttons.forEach(el => {
+                if (el.textContent.includes('تایید') || el.textContent.includes('متوجه شدم')) {
+                    el.click();
+                }
+            });
+            
+            // حذف کامل تمام لایه‌های پاپ‌آپ، بلور و تورهای آموزشی از صفحه
+            const popupSelectors = [
+                '.introjs-container', '.introjs-overlay', '.introjs-tooltip',
+                '.swal2-container', '.modal', '[class*="popup"]', '[class*="overlay"]',
+                '[class*="intro"]', 'div[style*="z-index: 10000"]'
+            ];
+            popupSelectors.forEach(sel => {
+                document.querySelectorAll(sel).forEach(node => node.remove());
             });
         }""")
-        time.sleep(1)
+        time.sleep(2)
     except Exception as e:
-        print(f"Popup clearance note: {e}")
+        print(f"Popup removal notice: {e}")
 
 def capture_all():
     print("Starting market capture runner...")
@@ -92,7 +103,7 @@ def capture_all():
         page = context.new_page()
 
         # ==============================================================
-        # ۱. تریدرز آرنا (۳ بخش کامل و فریز شده قبلی)
+        # ۱. تریدرز آرنا (۳ بخش کامل و فریز شده)
         # ==============================================================
         try:
             print("1. Processing Traders Arena...")
@@ -115,14 +126,14 @@ def capture_all():
             print(f"Error in Traders Arena: {e}")
 
         # ==============================================================
-        # ۲. نماد «اهرم» (یک صفحه کامل و تمیز بدون پاپ‌آپ)
+        # ۲. نماد «اهرم» در ره‌آورد (یک صفحه کامل، تمیز و بدون پاپ‌آپ)
         # ==============================================================
         try:
             print("2. Processing Ahrom symbol...")
             page.goto("https://rahavard365.com/asset/52309/اهرم", wait_until="domcontentloaded", timeout=45000)
-            time.sleep(8)
             
-            clean_popups(page)
+            # پاکسازی تخصصی پاپ‌آپ‌های ره‌آورد
+            kill_rahavard_popups(page)
 
             page.screenshot(path="ahrom_full.png", full_page=True)
             send_image(
@@ -133,14 +144,14 @@ def capture_all():
             print(f"Error in Ahrom: {e}")
 
         # ==============================================================
-        # ۳. نماد «خودرو» (یک صفحه کامل و تمیز بدون پاپ‌آپ)
+        # ۳. نماد «خودرو» در ره‌آورد (یک صفحه کامل، تمیز و بدون پاپ‌آپ)
         # ==============================================================
         try:
             print("3. Processing Khodro symbol...")
             page.goto("https://rahavard365.com/asset/283/خودرو", wait_until="domcontentloaded", timeout=45000)
-            time.sleep(8)
             
-            clean_popups(page)
+            # پاکسازی تخصصی پاپ‌آپ‌های ره‌آورد
+            kill_rahavard_popups(page)
 
             page.screenshot(path="khodro_full.png", full_page=True)
             send_image(
