@@ -1,0 +1,33 @@
+name: Options Market Watch Monitor
+
+on:
+  schedule:
+    # اجرا هر ۵ دقیقه در ساعات بازار (شنبه تا چهارشنبه یا یکشنبه تا پنج‌شنبه)
+    - cron: '*/5 5-14 * * 0-4'
+  workflow_dispatch:
+
+jobs:
+  run-options:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pandas matplotlib
+
+      - name: Run Options Monitor Script
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+          BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
+          BALE_CHANNEL_ID: ${{ secrets.BALE_CHANNEL_ID }}
+        run: |
+          python options_monitor.py
