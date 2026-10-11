@@ -10,7 +10,7 @@ BALE_CHANNEL_ID = os.environ.get("BALE_CHANNEL_ID")
 
 def send_image(image_path, caption):
     """
-    ارسال فایل تصویر به تلگرام و بله با لاگ دقیق
+    ارسال فایل تصویر به تلگرام و بله با سرعت بالا و لاگ دقیق
     """
     if not os.path.exists(image_path):
         print(f"File not found: {image_path}")
@@ -24,7 +24,7 @@ def send_image(image_path, caption):
                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
                     data={"chat_id": CHANNEL_ID, "caption": caption},
                     files={"photo": img},
-                    timeout=60
+                    timeout=45
                 )
             if res.status_code == 200:
                 print(f"Telegram sent: {image_path}")
@@ -41,7 +41,7 @@ def send_image(image_path, caption):
                     f"https://tapi.bale.ai/bot{BALE_BOT_TOKEN}/sendPhoto",
                     data={"chat_id": BALE_CHANNEL_ID, "caption": caption},
                     files={"photo": img},
-                    timeout=60
+                    timeout=45
                 )
             if res.status_code == 200:
                 print(f"Bale sent: {image_path}")
@@ -50,40 +50,8 @@ def send_image(image_path, caption):
         except Exception as e:
             print(f"Bale exception on {image_path}: {e}")
 
-def kill_rahavard_popups(page):
-    """
-    بستن و حذف قطعی تمام پاپ‌آپ‌ها، تورهای راهنما و اخطارهای ره‌آورد
-    """
-    try:
-        # مکث کوتا برای ظاهر شدن کامل پاپ‌آپ‌ها
-        time.sleep(3)
-        
-        # کلیک روی دکمه‌های تایید یا بستن پاپ‌آپ‌ها اگر وجود داشته باشند
-        page.evaluate("""() => {
-            // کلیک روی دکمه تایید راهنماها
-            const buttons = Array.from(document.querySelectorAll('button, div, span'));
-            buttons.forEach(el => {
-                if (el.textContent.includes('تایید') || el.textContent.includes('متوجه شدم')) {
-                    el.click();
-                }
-            });
-            
-            // حذف کامل تمام لایه‌های پاپ‌آپ، بلور و تورهای آموزشی از صفحه
-            const popupSelectors = [
-                '.introjs-container', '.introjs-overlay', '.introjs-tooltip',
-                '.swal2-container', '.modal', '[class*="popup"]', '[class*="overlay"]',
-                '[class*="intro"]', 'div[style*="z-index: 10000"]'
-            ];
-            popupSelectors.forEach(sel => {
-                document.querySelectorAll(sel).forEach(node => node.remove());
-            });
-        }""")
-        time.sleep(2)
-    except Exception as e:
-        print(f"Popup removal notice: {e}")
-
 def capture_all():
-    print("Starting market capture runner...")
+    print("Starting fast market capture runner (Traders Arena)...")
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
@@ -103,66 +71,46 @@ def capture_all():
         page = context.new_page()
 
         # ==============================================================
-        # ۱. تریدرز آرنا (۳ بخش کامل و فریز شده)
+        # ۱. صفحه اصلی تریدرز آرنا (۳ بخش سریع و تمیز)
         # ==============================================================
         try:
-            print("1. Processing Traders Arena...")
-            page.goto("https://tradersarena.ir/", wait_until="networkidle", timeout=45000)
-            time.sleep(6)
+            print("1. Processing Traders Arena Main Page...")
+            page.goto("https://tradersarena.ir/", wait_until="domcontentloaded", timeout=30000)
+            time.sleep(3) # مکث کوتاه و بهینه برای سرعت بالا
 
             page.screenshot(path="traders_arena_1.png", full_page=False)
             send_image("traders_arena_1.png", "📊 *تریدرز آرنا - بخش ۱ (آمارهای کلیدی بازار)*\nمنبع: tradersarena.ir")
 
             page.evaluate("window.scrollTo(0, 750);")
-            time.sleep(3)
+            time.sleep(1.5)
             page.screenshot(path="traders_arena_2.png", full_page=False)
             send_image("traders_arena_2.png", "📉 *تریدرز آرنا - بخش ۲ (نمودارهای جریان نقدینگی)*\nمنبع: tradersarena.ir")
 
             page.evaluate("window.scrollTo(0, 1500);")
-            time.sleep(3)
+            time.sleep(1.5)
             page.screenshot(path="traders_arena_3.png", full_page=False)
             send_image("traders_arena_3.png", "📋 *تریدرز آرنا - بخش ۳ (صف‌های خرید و فروش)*\nمنبع: tradersarena.ir")
         except Exception as e:
-            print(f"Error in Traders Arena: {e}")
+            print(f"Error in Traders Arena Main: {e}")
 
         # ==============================================================
-        # ۲. نماد «اهرم» در ره‌آورد (یک صفحه کامل، تمیز و بدون پاپ‌آپ)
-        # ==============================================================
-        try:
-            print("2. Processing Ahrom symbol...")
-            page.goto("https://rahavard365.com/asset/52309/اهرم", wait_until="domcontentloaded", timeout=45000)
-            
-            # پاکسازی تخصصی پاپ‌آپ‌های ره‌آورد
-            kill_rahavard_popups(page)
-
-            page.screenshot(path="ahrom_full.png", full_page=True)
-            send_image(
-                "ahrom_full.png",
-                "⚡ *نماد اهرم - تابلو کامل معاملات، صف‌ها، حقیقی/حقوقی و نمودار*\nمنبع: rahavard365"
-            )
-        except Exception as e:
-            print(f"Error in Ahrom: {e}")
-
-        # ==============================================================
-        # ۳. نماد «خودرو» در ره‌آورد (یک صفحه کامل، تمیز و بدون پاپ‌آپ)
+        # ۲. نماد «اهرم» در تریدرز آرنا (صفحه اختصاصی تمیز و سریع)
         # ==============================================================
         try:
-            print("3. Processing Khodro symbol...")
-            page.goto("https://rahavard365.com/asset/283/خودرو", wait_until="domcontentloaded", timeout=45000)
-            
-            # پاکسازی تخصصی پاپ‌آپ‌های ره‌آورد
-            kill_rahavard_popups(page)
+            print("2. Processing Ahrom symbol on Traders Arena...")
+            page.goto("https://tradersarena.ir/17914401175772326", wait_until="domcontentloaded", timeout=30000)
+            time.sleep(4)
 
-            page.screenshot(path="khodro_full.png", full_page=True)
+            page.screenshot(path="ahrom_arena.png", full_page=True)
             send_image(
-                "khodro_full.png",
-                "🚗 *نماد خودرو - تابلو کامل معاملات، صف‌ها، حقیقی/حقوقی و نمودار*\nمنبع: rahavard365"
+                "ahrom_arena.png",
+                "⚡ *نماد اهرم - تابلو معاملات و جزئیات کامل*\nمنبع: tradersarena.ir"
             )
         except Exception as e:
-            print(f"Error in Khodro: {e}")
+            print(f"Error in Ahrom Ahrend Arena: {e}")
 
         browser.close()
-        print("Done! All captures finished successfully.")
+        print("Done! All fast captures finished successfully.")
 
 if __name__ == "__main__":
     capture_all()
