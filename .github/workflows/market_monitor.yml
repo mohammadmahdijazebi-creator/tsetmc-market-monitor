@@ -2,13 +2,20 @@ name: Market Monitor Run
 
 on:
   schedule:
-    # هر 5 دقیقه از ساعت 05:00 تا 14:30 به وقت UTC (معادل 08:30 تا 18:00 به وقت تهران) در روزهای شنبه تا چهارشنبه (0 تا 4)
+    # اجرا هر 5 دقیقه در ساعات بازار (پشتیبان)
     - cron: '*/5 5-14 * * 0-4'
   workflow_dispatch:
+
+concurrency:
+  group: market-monitor
+  cancel-in-progress: false
 
 jobs:
   run-market-monitor:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -32,3 +39,12 @@ jobs:
           BALE_CHANNEL_ID: ${{ secrets.BALE_CHANNEL_ID }}
         run: |
           python bot.py
+
+      - name: Commit and Push State
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -f market_monitor_state.json ]; then
+            git add market_monitor_state.json
+            git diff --staged --quiet || (git commit -m "chore: update market hash state" && git push)
+          fi
