@@ -1,17 +1,23 @@
+import hashlib
+import json
 import os
 import time
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
 import requests
 from playwright.sync_api import sync_playwright
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-CHANNEL_ID = os.environ.get("CHANNEL_ID")
-BALE_BOT_TOKEN = os.environ.get("BALE_BOT_TOKEN")
-BALE_CHANNEL_ID = os.environ.get("BALE_CHANNEL_ID")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+CHANNEL_ID = os.environ.get("CHANNEL_ID", "").strip()
+BALE_BOT_TOKEN = os.environ.get("BALE_BOT_TOKEN", "").strip()
+BALE_CHANNEL_ID = os.environ.get("BALE_CHANNEL_ID", "").strip()
 
-# =====================================================================
-# بخش قابل ویرایش: هر زمان خواستی نمادی را کم، زیاد یا اصلاح کنی،
-# فقط کافی است در این لیست (SYMBOLS) مورد جدید اضافه یا حذف کنی.
-# =====================================================================
+STATE_FILE = Path("market_monitor_state.json")
+TEHRAN_TZ = ZoneInfo("Asia/Tehran")
+
+# لیست نمادهای تحت رصد
 SYMBOLS = [
     {
         "name": "ahrom",
@@ -38,13 +44,60 @@ SYMBOLS = [
         "title": "🥈 نماد نقراط (صندوق نقره)",
         "url": "https://tradersarena.ir/65365726391403130"
     }
-    # برای اضافه کردن نماد جدید، کافی است الگوی بالا را اینجا کپی کنی:
-    # {
-    #     "name": "نام_انگلیسی_بدون_فاصله",
-    #     "title": "عنوان دلخواه برای کپشن",
-    #     "url": "لینک_تریدرز_آرنا"
-    # },
 ]
+
+
+def load_last_hash():
+    """خواندن هش آخرین وضعیت تابلوی بازار"""
+    if not STATE_FILE.exists():
+        return ""
+    try:
+        data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        return data.get("last_main_hash", "")
+    except Exception:
+        return ""
+
+
+def save_last_hash(img_hash):
+    """ذخیره هش تابلوی بازار"""
+    try:
+        STATE_FILE.write_text(
+            json.dumps({"last_main_hash": img_hash, "updated_at": datetime.now(TEHRAN_TZ).isoformat()}),
+            encoding="utf-8"
+        )
+    except Exception as e:
+        print(f"خطا در ذخیره وضعیت هش: {e}")
+
+
+def get_file_md5(filepath):
+    """محاسبه هش محتوای تصویر جهت سنجش تغییرات تابلو"""
+    hasher = hashlib.md5()
+    with open(filepath, "rb") as f:
+        hasher.update(f.read())
+    return hasher.hexdigest()
+
+
+def is_market_time_allowed():
+    """بررسی بازه زمانی مجاز بازار: شنبه تا چهارشنبه از ۰۸:۳۰ تا ۱۸:۰۰"""
+    now = datetime.now(TEHRAN_TZ)
+    # در پایتون: دوشنبه=0، سه‌شنبه=1، چهارشنبه=2، پنج‌شنبه=3، جمعه=4، شنبه=5، یکشنبه=6
+    # روزهای کاری بورس ایران: شنبه(5), یکشنبه(6), دوشنبه(0), سه‌شنبه(1), چهارشنبه(2)
+    # روزهای تعطیل: پنج‌شنبه(3) و جمعه(4)
+    weekday = now.weekday()
+    if weekday in (3, 4):
+        print(f"[{now.strftime('%H:%M')}] امروز پنج‌شنبه یا جمعه (تعطیل) است. اجرا متوقف شد.")
+        return False
+
+    current_minutes = now.hour * 60 + now.minute
+    start_minutes = 8 * 60 + 30   # 08:30
+    end_minutes = 18 * 60         # 18:00
+
+    if not (start_minutes <= current_minutes <= end_minutes):
+        print(f"[{now.strftime('%H:%M')}] خارج از ساعت معاملات (۰۸:۳۰ تا ۱۸:۰۰) است. اجرا متوقف شد.")
+        return False
+
+    return True
+
 
 def send_image(image_path, caption):
     """ارسال فایل تصویر به تلگرام و بله با امنیت و لاگ دقیق"""
@@ -86,8 +139,15 @@ def send_image(image_path, caption):
         except Exception as e:
             print(f"Bale exception on {image_path}: {e}")
 
+
 def capture_all():
+    # ۱. فیلتر زمانی روز و ساعت
+    if not is_market_time_allowed():
+        return
+
     print("Starting market multi-symbol runner (Traders Arena)...")
+    last_hash = load_last_hash()
+
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
@@ -107,14 +167,23 @@ def capture_all():
         page = context.new_page()
 
         # ==============================================================
-        # ۱. صفحه اصلی تریدرز آرنا (۳ بخش کلیدی بازار)
+        # ۲. بررسی تابلوی اصلی و تست تغییرات (برای روزهای تعطیل رسمی یا ساعات راکد)
         # ==============================================================
         try:
-            print("Processing Traders Arena Main Page...")
+            print("Checking Traders Arena Main Page for updates...")
             page.goto("https://tradersarena.ir/", wait_until="domcontentloaded", timeout=30000)
             time.sleep(3)
 
             page.screenshot(path="traders_arena_1.png", full_page=False)
+            current_hash = get_file_md5("traders_arena_1.png")
+
+            # اگر تصویر نسبت به ۵ دقیقه قبل کوچکترین تغییری نکرده باشد (تعطیل رسمی یا عدم آپدیت)
+            if current_hash == last_hash:
+                print(f"⚠️ دیتای سایت آپدیت نشده است (یا بازار تعطیل رسمی است). هیچ پیامی ارسال نمی‌شود.")
+                browser.close()
+                return
+
+            print("✅ تابلوی بازار بروزرسانی شده است. در حال ارسال تصاویر به کانال...")
             send_image("traders_arena_1.png", "📊 *تریدرز آرنا - بخش ۱ (آمارهای کلیدی بازار)*\nمنبع: tradersarena.ir")
 
             page.evaluate("window.scrollTo(0, 750);")
@@ -126,11 +195,17 @@ def capture_all():
             time.sleep(1.5)
             page.screenshot(path="traders_arena_3.png", full_page=False)
             send_image("traders_arena_3.png", "📋 *تریدرز آرنا - بخش ۳ (صف‌های خرید و فروش)*\nمنبع: tradersarena.ir")
+
+            # ذخیره هش جدید به عنوان آخرین تغییرات
+            save_last_hash(current_hash)
+
         except Exception as e:
             print(f"Error in Traders Arena Main: {e}")
+            browser.close()
+            return
 
         # ==============================================================
-        # ۲. پردازش پویای تمام نمادها (هر نماد در دو بخش مجزا)
+        # ۳. پردازش و ارسال نمادها (فقط زمانی که دیتای بازار تازه است)
         # ==============================================================
         for item in SYMBOLS:
             name = item["name"]
@@ -147,10 +222,9 @@ def capture_all():
                 page.screenshot(path=file_part1, full_page=False)
                 send_image(file_part1, f"{title}\n📌 *بخش ۱ (تابلو و جزئیات بالایی)*\nمنبع: tradersarena.ir")
 
-                # اسکرول به پایین برای بخش دوم نماد
+                # بخش دوم نماد
                 page.evaluate("window.scrollTo(0, 850);")
                 time.sleep(1.5)
-                
                 file_part2 = f"{name}_part2.png"
                 page.screenshot(path=file_part2, full_page=False)
                 send_image(file_part2, f"{title}\n📌 *بخش ۲ (نمودارها و اطلاعات تکمیلی)*\nمنبع: tradersarena.ir")
@@ -159,7 +233,8 @@ def capture_all():
                 print(f"Error processing symbol {name}: {e}")
 
         browser.close()
-        print("Done! All multi-symbol captures finished successfully.")
+        print("Done! All captures finished successfully.")
+
 
 if __name__ == "__main__":
     capture_all()
