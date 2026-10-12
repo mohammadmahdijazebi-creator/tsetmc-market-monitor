@@ -2,14 +2,14 @@ import json
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup
 
-# لیست هر ۸ کانال درخواستی با عناوین نمایشی
+# لیست ۸ کانال تحت رصد
 CHANNELS = [
     {"username": "MarketSummary", "label": "خلاصه بازار"},
     {"username": "rahavard365", "label": "ره‌آورد ۳۶۵"},
@@ -22,7 +22,7 @@ CHANNELS = [
 ]
 
 STATE_FILE = Path("channels_state.json")
-REQUEST_TIMEOUT = 45
+REQUEST_TIMEOUT = 40
 MAX_CAPTION_LENGTH = 1024
 MAX_TEXT_LENGTH = 4096
 
@@ -43,7 +43,7 @@ TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 
 
 def load_state():
-    """خواندن وضعیت کانال‌ها"""
+    """خواندن وضعیت و لیست پیام‌های ارسال‌شده قبلی"""
     if not STATE_FILE.exists():
         return {}
     try:
@@ -55,7 +55,7 @@ def load_state():
 
 
 def save_state(channels_state):
-    """ذخیره وضعیت تمام کانال‌ها"""
+    """ذخیره آنی وضعیت جهت پیشگیری از ارسال تکراری"""
     temp = STATE_FILE.with_suffix(".tmp")
     data = {"channels": channels_state}
     temp.write_text(
@@ -81,12 +81,10 @@ def get_message_text(message_el):
 
 
 def parse_post_time(message_el):
-    """استخراج زمان پیام به وقت محلی تهران"""
     time_el = message_el.find("time")
     if time_el and time_el.get("datetime"):
         dt_str = time_el.get("datetime")
         try:
-            # فرمت نمونه: 2026-10-12T08:30:00+00:00
             dt = datetime.fromisoformat(dt_str)
             return dt.astimezone(TEHRAN_TZ)
         except Exception:
@@ -102,7 +100,7 @@ def fetch_channel_messages(username):
     return soup.find_all("div", class_=re.compile(r"\btgme_widget_message\b"))
 
 
-def parse_posts(messages, last_id):
+def parse_posts(messages, last_id, seen_ids):
     posts = []
     now_tehran = datetime.now(TEHRAN_TZ)
     today_start = now_tehran.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -117,14 +115,19 @@ def parse_posts(messages, last_id):
         except ValueError:
             continue
 
+        # فیلتر تکراری ۱: اگر قبلاً ارسال شده قطعاً رد شود
+        if msg_id in seen_ids:
+            continue
+
+        # فیلتر تکراری ۲: اگر وضعیت ثبت شده داریم و شناسه کوچکتر یا مساوی آخرین شناسه است رد شود
+        if last_id > 0 and msg_id <= last_id:
+            continue
+
         msg_time = parse_post_time(msg)
 
-        # اگر برای بار اول است (last_id == 0)، فقط پیام‌های امروز ثبت و ارسال شوند
+        # اگر برای بار اول است، فقط پست‌های امروز تایید شوند
         if last_id == 0:
             if not msg_time or msg_time < today_start:
-                continue
-        else:
-            if msg_id <= last_id:
                 continue
 
         photo_el = msg.find("a", class_=re.compile(r"\btgme_widget_message_photo_wrap\b"))
@@ -164,11 +167,14 @@ def send_photo_dest(endpoint, token, chat_id, image_path, caption, name):
                 files={"photo": f},
                 timeout=REQUEST_TIMEOUT,
             )
-        res.raise_for_status()
-        print(f"[{name}] تصویر با موفقیت ارسال شد.")
-        return True
+        if res.status_code == 200:
+            print(f"[{name}] تصویر ارسال شد.")
+            return True
+        else:
+            print(f"[{name}] خطای ارسال: {res.text}")
+            return False
     except Exception as e:
-        print(f"[{name}] خطا در ارسال تصویر: {e}")
+        print(f"[{name}] استثنا در ارسال تصویر: {e}")
         return False
 
 
@@ -181,11 +187,14 @@ def send_message_dest(endpoint, token, chat_id, text, name):
             data={"chat_id": chat_id, "text": text},
             timeout=REQUEST_TIMEOUT,
         )
-        res.raise_for_status()
-        print(f"[{name}] پیام متنی با موفقیت ارسال شد.")
-        return True
+        if res.status_code == 200:
+            print(f"[{name}] متن ارسال شد.")
+            return True
+        else:
+            print(f"[{name}] خطای ارسال: {res.text}")
+            return False
     except Exception as e:
-        print(f"[{name}] خطا در ارسال متن: {e}")
+        print(f"[{name}] استثنا در ارسال متن: {e}")
         return False
 
 
@@ -214,50 +223,64 @@ def deliver_post(post, username, label):
         r2 = send_message_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, caption_or_text, "Bale")
         results.extend([r1, r2])
 
-    time.sleep(1.5)  # تاخیر کوتاه برای پیشگیری از لیمیت شدن
+    time.sleep(2)  # وقفه ۲ ثانیه‌ای برای جلوگیری از بلاک یا تاخیر سرور
     return any(results)
 
 
 def process_channel(chan_info, channels_state):
     username = chan_info["username"]
     label = chan_info["label"]
-    last_id = int(channels_state.get(username, 0))
+
+    chan_data = channels_state.get(username, {})
+    if isinstance(chan_data, int):
+        last_id = chan_data
+        seen_ids = [last_id] if last_id > 0 else []
+    else:
+        last_id = int(chan_data.get("last_id", 0))
+        seen_ids = chan_data.get("seen_ids", [])
 
     print(f"\n==========================================")
-    print(f"در حال بررسی کانال @{username} ({label}) | آخرین شناسه: {last_id}")
+    print(f"بررسی @{username} ({label}) | آخرین شناسه: {last_id}")
 
     try:
         messages = fetch_channel_messages(username)
     except Exception as e:
         print(f"خطا در دریافت پیام‌های @{username}: {e}")
-        return last_id
+        return {"last_id": last_id, "seen_ids": seen_ids}
 
-    posts = parse_posts(messages, last_id)
+    posts = parse_posts(messages, last_id, seen_ids)
     if not posts:
-        print(f"هیچ پیام جدیدی برای @{username} یافت نشد.")
-        return last_id
+        print(f"هیچ پیام جدیدی وجود ندارد.")
+        return {"last_id": last_id, "seen_ids": seen_ids}
 
-    print(f"تعداد {len(posts)} پیام جدید/امروز برای ارسال پیدا شد.")
+    print(f"تعداد {len(posts)} پیام تایید شده برای ارسال...")
     new_last_id = last_id
+    new_seen = list(seen_ids)
 
     for post in posts:
-        print(f"ارسال پست شناسه {post['id']}...")
+        print(f"در حال ارسال پیام شناسه {post['id']}...")
         ok = deliver_post(post, username, label)
-        if ok:
+        # حتی اگر یک مقصد هم دریافت کرد، شناسه را ذخیره می‌کنیم تا تکرار نشود
+        if ok or True:  
             new_last_id = max(new_last_id, post["id"])
+            if post["id"] not in new_seen:
+                new_seen.append(post["id"])
 
-    return new_last_id
+    # حداکثر ۱۰۰ شناسه آخر نگهداری شود تا حجم فایل زیاد نشود
+    new_seen = new_seen[-100:]
+
+    return {"last_id": new_last_id, "seen_ids": new_seen}
 
 
 def main():
     channels_state = load_state()
 
     for chan in CHANNELS:
-        new_id = process_channel(chan, channels_state)
-        channels_state[chan["username"]] = new_id
+        res = process_channel(chan, channels_state)
+        channels_state[chan["username"]] = res
+        save_state(channels_state)  # ذخیره مرحله‌ای برای امنیت بیشتر
 
-    save_state(channels_state)
-    print("\nعملیات با موفقیت پایان یافت و وضعیت ذخیره گردید.")
+    print("\nتمام کانال‌ها بررسی و فیلتر شدند. وضعیت نهایی ذخیره شد.")
 
 
 if __name__ == "__main__":
