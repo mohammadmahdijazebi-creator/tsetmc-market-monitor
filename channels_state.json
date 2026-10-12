@@ -1,12 +1,53 @@
 {
   "channels": {
-    "MarketSummary": 31412,
-    "rahavard365": 58514,
-    "rasadkhoneh": 7028,
-    "parsistahlil": 62106,
-    "MetaWave": 36054,
-    "dndir": 19508,
-    "option_cofe": 3284,
-    "trade_fundd": 11513
+    "MarketSummary": {
+      "last_id": 31412,
+      "seen_ids": [
+        31412
+      ]
+    },
+    "rahavard365": {
+      "last_id": 58514,
+      "seen_ids": [
+        58514
+      ]
+    },
+    "rasadkhoneh": {
+      "last_id": 7028,
+      "seen_ids": [
+        7028
+      ]
+    },
+    "parsistahlil": {
+      "last_id": 62107,
+      "seen_ids": [
+        62106,
+        62107
+      ]
+    },
+    "MetaWave": {
+      "last_id": 36054,
+      "seen_ids": [
+        36054
+      ]
+    },
+    "dndir": {
+      "last_id": 19508,
+      "seen_ids": [
+        19508
+      ]
+    },
+    "option_cofe": {
+      "last_id": 3284,
+      "seen_ids": [
+        3284
+      ]
+    },
+    "trade_fundd": {
+      "last_id": 11513,
+      "seen_ids": [
+        11513
+      ]
+    }
   }
 }
