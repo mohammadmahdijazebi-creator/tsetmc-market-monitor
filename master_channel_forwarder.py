@@ -276,7 +276,6 @@ def process_channel(chan_info, channels_state):
     for post in posts:
         print(f"در حال ارسال پیام شناسه {post['id']}...")
         ok = deliver_post(post, username, label)
-        # شناسه ثبت می‌شود تا حتی در اجراهای مجدد یا خطا ارسال مجدد نشود
         new_last_id = max(new_last_id, post["id"])
         if post["id"] not in new_seen:
             new_seen.append(post["id"])
