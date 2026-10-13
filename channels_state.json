@@ -156,7 +156,7 @@
       ]
     },
     "NoavaranAmin": {
-      "last_id": 127382,
+      "last_id": 127383,
       "seen_ids": [
         127375,
         127376,
@@ -165,7 +165,8 @@
         127379,
         127380,
         127381,
-        127382
+        127382,
+        127383
       ]
     },
     "feghtesad": {
@@ -348,8 +349,10 @@
       ]
     },
     "ebi_hajiahmadi_Official": {
-      "last_id": 0,
-      "seen_ids": []
+      "last_id": 7740,
+      "seen_ids": [
+        7740
+      ]
     }
   }
 }
