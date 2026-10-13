@@ -9,16 +9,32 @@ from zoneinfo import ZoneInfo
 import requests
 from bs4 import BeautifulSoup
 
-# لیست ۸ کانال تحت رصد
+# لیست ۲۴ کانال تحت رصد
 CHANNELS = [
-    {"username": "MarketSummary", "label": "خلاصه بازار"},
-    {"username": "rahavard365", "label": "ره‌آورد ۳۶۵"},
-    {"username": "rasadkhoneh", "label": "رصدخونه"},
-    {"username": "parsistahlil", "label": "پارسیس تحلیل"},
     {"username": "MetaWave", "label": "متا ویو"},
-    {"username": "dndir", "label": "دی ان دی"},
+    {"username": "rasadkhoneh", "label": "رصدخونه"},
+    {"username": "MarketSummary", "label": "خلاصه بازار"},
+    {"username": "shirazneowave", "label": "شیراز نئوویو"},
     {"username": "option_cofe", "label": "کافه آپشن"},
+    {"username": "rahavard365", "label": "ره‌آورد ۳۶۵"},
+    {"username": "etfplus", "label": "ای تی اف پلاس"},
     {"username": "trade_fundd", "label": "ترید فاند"},
+    {"username": "NoavaranAmin", "label": "نوآوران امین"},
+    {"username": "feghtesad", "label": "فردای اقتصاد"},
+    {"username": "bourse_traderir", "label": "بورس تریدر"},
+    {"username": "fundvesting", "label": "فاندوستینگ"},
+    {"username": "MomeniMohsen", "label": "محسن مومنی"},
+    {"username": "DataTechnical", "label": "دیتا تکنیکال"},
+    {"username": "option_school", "label": "مدرسه آپشن"},
+    {"username": "NerkhTv1", "label": "نرخ تی‌وی"},
+    {"username": "navidacademy_option", "label": "آکادمی نوید"},
+    {"username": "AgahMoshaver", "label": "آگاه مشاور"},
+    {"username": "dndir", "label": "دی ان دی"},
+    {"username": "boursetrader24", "label": "بورس تریدر ۲۴"},
+    {"username": "fundation_analyst", "label": "تحلیل فاندامنتال"},
+    {"username": "betasahm1", "label": "بتا سهم"},
+    {"username": "pishrobroker", "label": "کارگزاری پیشرو"},
+    {"username": "ebi_hajiahmadi_Official", "label": "ابراهیم حاجی احمدی"},
 ]
 
 STATE_FILE = Path("channels_state.json")
@@ -125,7 +141,7 @@ def parse_posts(messages, last_id, seen_ids):
 
         msg_time = parse_post_time(msg)
 
-        # اگر برای بار اول است، فقط پست‌های امروز تایید شوند
+        # اگر برای بار اول است، فقط پست‌های امروز تایید شوند تا پست‌های قدیمی سرازیر نشوند
         if last_id == 0:
             if not msg_time or msg_time < today_start:
                 continue
@@ -223,7 +239,7 @@ def deliver_post(post, username, label):
         r2 = send_message_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, caption_or_text, "Bale")
         results.extend([r1, r2])
 
-    time.sleep(2)  # وقفه ۲ ثانیه‌ای برای جلوگیری از بلاک یا تاخیر سرور
+    time.sleep(2)  # وقفه ۲ ثانیه‌ای برای جلوگیری از بلاک یا محدودیت نرخ ارسال
     return any(results)
 
 
@@ -260,11 +276,10 @@ def process_channel(chan_info, channels_state):
     for post in posts:
         print(f"در حال ارسال پیام شناسه {post['id']}...")
         ok = deliver_post(post, username, label)
-        # حتی اگر یک مقصد هم دریافت کرد، شناسه را ذخیره می‌کنیم تا تکرار نشود
-        if ok or True:  
-            new_last_id = max(new_last_id, post["id"])
-            if post["id"] not in new_seen:
-                new_seen.append(post["id"])
+        # شناسه ثبت می‌شود تا حتی در اجراهای مجدد یا خطا ارسال مجدد نشود
+        new_last_id = max(new_last_id, post["id"])
+        if post["id"] not in new_seen:
+            new_seen.append(post["id"])
 
     # حداکثر ۱۰۰ شناسه آخر نگهداری شود تا حجم فایل زیاد نشود
     new_seen = new_seen[-100:]
