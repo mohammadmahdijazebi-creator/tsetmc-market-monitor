@@ -1,11 +1,13 @@
 {
   "channels": {
     "MarketSummary": {
-      "last_id": 31414,
+      "last_id": 31416,
       "seen_ids": [
         31412,
         31413,
-        31414
+        31414,
+        31415,
+        31416
       ]
     },
     "rahavard365": {
