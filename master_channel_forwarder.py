@@ -26,7 +26,6 @@ CHANNELS = [
     {"username": "MomeniMohsen", "label": "محسن مومنی"},
     {"username": "DataTechnical", "label": "دیتا تکنیکال"},
     {"username": "option_school", "label": "مدرسه آپشن"},
-    {"username": "NerkhTv1", "label": "نرخ تی‌وی"},
     {"username": "navidacademy_option", "label": "آکادمی نوید"},
     {"username": "AgahMoshaver", "label": "آگاه مشاور"},
     {"username": "dndir", "label": "دی ان دی"},
