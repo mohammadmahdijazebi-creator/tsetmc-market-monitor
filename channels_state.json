@@ -137,7 +137,7 @@
       ]
     },
     "trade_fundd": {
-      "last_id": 11571,
+      "last_id": 11572,
       "seen_ids": [
         11513,
         11515,
@@ -191,7 +191,8 @@
         11567,
         11568,
         11569,
-        11571
+        11571,
+        11572
       ]
     },
     "shirazneowave": {
@@ -428,11 +429,12 @@
       ]
     },
     "navidacademy_option": {
-      "last_id": 1691,
+      "last_id": 1692,
       "seen_ids": [
         1688,
         1690,
-        1691
+        1691,
+        1692
       ]
     },
     "AgahMoshaver": {
