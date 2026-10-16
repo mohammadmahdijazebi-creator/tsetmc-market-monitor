@@ -298,8 +298,10 @@
       ]
     },
     "feghtesad": {
-      "last_id": 0,
-      "seen_ids": []
+      "last_id": 38054,
+      "seen_ids": [
+        38054
+      ]
     },
     "bourse_traderir": {
       "last_id": 356913,
@@ -389,7 +391,7 @@
       ]
     },
     "fundvesting": {
-      "last_id": 3813,
+      "last_id": 3815,
       "seen_ids": [
         3795,
         3796,
@@ -405,7 +407,8 @@
         3810,
         3811,
         3812,
-        3813
+        3813,
+        3815
       ]
     },
     "MomeniMohsen": {
