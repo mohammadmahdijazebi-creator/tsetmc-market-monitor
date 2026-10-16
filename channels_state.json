@@ -226,8 +226,10 @@
       ]
     },
     "shirazneowave": {
-      "last_id": 0,
-      "seen_ids": []
+      "last_id": 1237,
+      "seen_ids": [
+        1237
+      ]
     },
     "etfplus": {
       "last_id": 3754,
@@ -437,7 +439,7 @@
       ]
     },
     "NerkhTv1": {
-      "last_id": 47979,
+      "last_id": 47980,
       "seen_ids": [
         47888,
         47889,
@@ -529,7 +531,8 @@
         47976,
         47977,
         47978,
-        47979
+        47979,
+        47980
       ]
     },
     "navidacademy_option": {
