@@ -482,13 +482,14 @@
       "seen_ids": []
     },
     "option_school": {
-      "last_id": 7804,
+      "last_id": 7805,
       "seen_ids": [
         7800,
         7801,
         7802,
         7803,
-        7804
+        7804,
+        7805
       ]
     },
     "NerkhTv1": {
