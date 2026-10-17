@@ -748,13 +748,14 @@
       ]
     },
     "fundation_analyst": {
-      "last_id": 1917,
+      "last_id": 1918,
       "seen_ids": [
         1913,
         1914,
         1915,
         1916,
-        1917
+        1917,
+        1918
       ]
     },
     "betasahm1": {
@@ -863,7 +864,7 @@
       ]
     },
     "pishrobroker": {
-      "last_id": 17702,
+      "last_id": 17703,
       "seen_ids": [
         17632,
         17633,
@@ -927,7 +928,8 @@
         17695,
         17698,
         17701,
-        17702
+        17702,
+        17703
       ]
     },
     "ebi_hajiahmadi_Official": {
