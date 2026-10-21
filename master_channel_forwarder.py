@@ -1,153 +1,434 @@
-import os
 import json
+import os
+import re
 import time
+from datetime import datetime, timezone
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
 import requests
-import subprocess
 from bs4 import BeautifulSoup
 
-STATE_FILE = "channels_state.json"
-
-# تنظیمات بات‌ها از Environment Variables
-TELEGRAM_BOT_TOKEN = os.getenv("BOT_TOKEN")
-TELEGRAM_CHANNEL_ID = os.getenv("CHANNEL_ID")
-
-BALE_BOT_TOKEN = os.getenv("BALE_BOT_TOKEN")
-BALE_CHANNEL_ID = os.getenv("BALE_CHANNEL_ID")
-
-# ۲۴ کانال تلگرام شما
-TELEGRAM_CHANNELS = [
-    {"username": "MetaWave", "label": "متاسپات"},
-    {"username": "crypto_signals", "label": "سیگنال کریپتو"},
-    # ... (سایر کانال‌های تلگرامی شما)
+# لیست کانال‌های تلگرام شما
+CHANNELS = [
+    {"username": "MarketSummary", "label": "خلاصه بازار"},
+    {"username": "rahavard365", "label": "ره‌آورد ۳۶۵"},
+    {"username": "rasadkhoneh", "label": "رصدخونه"},
+    {"username": "parsistahlil", "label": "پارسیس تحلیل"},
+    {"username": "MetaWave", "label": "متا ویو"},
+    {"username": "dndir", "label": "دی ان دی"},
+    {"username": "option_cofe", "label": "کافه آپشن"},
+    {"username": "trade_fundd", "label": "ترید فاند"},
 ]
 
-# ۳ کانال یوتیوب شما (آدرس‌های فید یا صفحه کانال)
+# ۳ کانال یوتیوب شما (شناسه‌های کانال برای فید RSS پایدار)
 YOUTUBE_CHANNELS = [
-    {"url": "https://www.youtube.com/@feghtesad", "label": "اقتصاد"},
-    {"url": "https://www.youtube.com/@BashgahPol", "label": "باشگاه پول"},
-    {"url": "https://www.youtube.com/@aliichii-tube", "label": "علیچی"}
+    {"channel_id": "UC_feghtesad_id_placeholder", "label": "اقتصاد", "handle": "@feghtesad"},
+    {"channel_id": "UC_bashgahpol_id_placeholder", "label": "باشگاه پول", "handle": "@BashgahPol"},
+    {"channel_id": "UC_aliichii_id_placeholder", "label": "علیچی", "handle": "@aliichii-tube"},
 ]
+
+STATE_FILE = Path("channels_state.json")
+REQUEST_TIMEOUT = 40
+MAX_CAPTION_LENGTH = 1024
+MAX_TEXT_LENGTH = 4096
+
+# تنظیمات YouTube
+YOUTUBE_POLL = 1  # بررسی آخرین ویدیو در هر اجرا
+YOUTUBE_MAX_HEIGHT = 480  # کیفیت مناسب برای زیر ۵۰ مگابایت
+YOUTUBE_MAX_BYTES = 48 * 1024 * 1024  # سقف ۴۸ مگابایت برای بات تلگرام/بله
+
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+CHANNEL_ID = os.getenv("CHANNEL_ID", "").strip()
+BALE_BOT_TOKEN = os.getenv("BALE_BOT_TOKEN", "").strip()
+BALE_CHANNEL_ID = os.getenv("BALE_CHANNEL_ID", "").strip()
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    )
+}
+
+TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 
 
 def load_state():
-    if os.path.exists(STATE_FILE):
+    if not STATE_FILE.exists():
+        return {}
+    try:
+        data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        return data.get("channels", {})
+    except Exception as e:
+        print(f"خطا در خواندن فایل وضعیت: {e}")
+        return {}
+
+
+def save_state(channels_state):
+    temp = STATE_FILE.with_suffix(".tmp")
+    data = {"channels": channels_state}
+    temp.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    temp.replace(STATE_FILE)
+
+
+def extract_image_url(photo_element):
+    if not photo_element:
+        return None
+    style = photo_element.get("style", "")
+    match = re.search(r"url\(['\"]?(.*?)['\"]?\)", style)
+    return match.group(1) if match else None
+
+
+def get_message_text(message_el):
+    text_el = message_el.find("div", class_="tgme_widget_message_text")
+    if not text_el:
+        return ""
+    return text_el.get_text("\n", strip=True)
+
+
+def parse_post_time(message_el):
+    time_el = message_el.find("time")
+    if time_el and time_el.get("datetime"):
+        dt_str = time_el.get("datetime")
         try:
-            with open(STATE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+            dt = datetime.fromisoformat(dt_str)
+            return dt.astimezone(TEHRAN_TZ)
         except Exception:
-            return {}
-    return {}
+            pass
+    return None
 
 
-def save_state(state):
-    temp_file = STATE_FILE + ".tmp"
-    with open(temp_file, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
-    os.replace(temp_file, STATE_FILE)
+def fetch_channel_messages(username):
+    url = f"https://t.me/s/{username}"
+    response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    soup = BeautifulSoup(response.text, "html.parser")
+    return soup.find_all("div", class_=re.compile(r"\btgme_widget_message\b"))
 
 
-def send_telegram_video(video_path, caption):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHANNEL_ID:
-        return False
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendVideo"
-    try:
-        with open(video_path, "rb") as video_file:
-            files = {"video": video_file}
-            data = {"chat_id": TELEGRAM_CHANNEL_ID, "caption": caption[:1024], "parse_mode": "HTML"}
-            res = requests.post(url, data=data, files=files, timeout=120)
-            return res.json().get("ok", False)
-    except Exception as e:
-        print(f"Telegram video send error: {e}")
-        return False
+def parse_posts(messages, last_id, seen_ids):
+    posts = []
+    now_tehran = datetime.now(TEHRAN_TZ)
+    today_start = now_tehran.replace(hour=0, minute=0, second=0, microsecond=0)
 
+    for msg in messages:
+        data_post = msg.get("data-post", "")
+        if "/" not in data_post:
+            continue
 
-def send_bale_video(video_path, caption):
-    if not BALE_BOT_TOKEN or not BALE_CHANNEL_ID:
-        return False
-    url = f"https://tapi.bale.ai/bot{BALE_BOT_TOKEN}/sendVideo"
-    try:
-        with open(video_path, "rb") as video_file:
-            files = {"video": video_file}
-            data = {"chat_id": BALE_CHANNEL_ID, "caption": caption[:1024]}
-            res = requests.post(url, data=data, files=files, timeout=120)
-            return res.json().get("ok", False)
-    except Exception as e:
-        print(f"Bale video send error: {e}")
-        return False
-
-
-def process_youtube_channels(state):
-    for yt in YOUTUBE_CHANNELS:
-        url = yt["url"]
-        label = yt["label"]
-        print(f"Checking YouTube channel: {label} ({url})")
-
-        # استفاده از yt-dlp برای استخراج آخرین ویدیو بدون دانلود کامل ابتدا
         try:
-            cmd = ["yt-dlp", "--print", "%(id)s||%(title)s||%(webpage_url)s", "--playlist-end", "1", url]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if result.returncode != 0 or not result.stdout.strip():
-                print(f"Could not fetch info for {label}")
+            msg_id = int(data_post.rsplit("/", 1)[-1])
+        except ValueError:
+            continue
+
+        if msg_id in seen_ids:
+            continue
+
+        if last_id > 0 and msg_id <= last_id:
+            continue
+
+        msg_time = parse_post_time(msg)
+
+        if last_id == 0:
+            if not msg_time or msg_time < today_start:
                 continue
 
-            parts = result.stdout.strip().split("||")
-            if len(parts) < 3:
+        photo_el = msg.find("a", class_=re.compile(r"\btgme_widget_message_photo_wrap\b"))
+        image_url = extract_image_url(photo_el)
+        text = get_message_text(msg)
+
+        if not image_url and not text:
+            continue
+
+        posts.append({
+            "id": msg_id,
+            "image_url": image_url,
+            "text": text,
+        })
+
+    return sorted(posts, key=lambda x: x["id"])
+
+
+def format_content(text, username, label, is_photo=False):
+    source_tag = f"📎 منبع: @{username} ({label})"
+    full_text = f"{text}\n\n{source_tag}" if text else source_tag
+    max_len = MAX_CAPTION_LENGTH if is_photo else MAX_TEXT_LENGTH
+
+    if len(full_text) > max_len:
+        full_text = full_text[: max_len - 3].rstrip() + "..."
+    return full_text
+
+
+def send_photo_dest(endpoint, token, chat_id, image_path, caption, name):
+    if not token or not chat_id:
+        return False
+    try:
+        with image_path.open("rb") as f:
+            res = requests.post(
+                f"{endpoint}{token}/sendPhoto",
+                data={"chat_id": chat_id, "caption": caption},
+                files={"photo": f},
+                timeout=REQUEST_TIMEOUT,
+            )
+        if res.status_code == 200:
+            print(f"[{name}] تصویر ارسال شد.")
+            return True
+        else:
+            print(f"[{name}] خطای ارسال: {res.text}")
+            return False
+    except Exception as e:
+        print(f"[{name}] استثنا در ارسال تصویر: {e}")
+        return False
+
+
+def send_message_dest(endpoint, token, chat_id, text, name):
+    if not token or not chat_id:
+        return False
+    try:
+        res = requests.post(
+            f"{endpoint}{token}/sendMessage",
+            data={"chat_id": chat_id, "text": text},
+            timeout=REQUEST_TIMEOUT,
+        )
+        if res.status_code == 200:
+            print(f"[{name}] متن ارسال شد.")
+            return True
+        else:
+            print(f"[{name}] خطای ارسال: {res.text}")
+            return False
+    except Exception as e:
+        print(f"[{name}] استثنا در ارسال متن: {e}")
+        return False
+
+
+def send_video_dest(endpoint, token, chat_id, video_path, caption, name):
+    if not token or not chat_id:
+        return False
+    try:
+        with video_path.open("rb") as f:
+            res = requests.post(
+                f"{endpoint}{token}/sendVideo",
+                data={"chat_id": chat_id, "caption": caption, "supports_streaming": "true"},
+                files={"video": f},
+                timeout=600,
+            )
+        if res.status_code == 200:
+            print(f"[{name}] ویدیو ارسال شد.")
+            return True
+        else:
+            print(f"[{name}] خطای ارسال ویدیو: {res.text}")
+            return False
+    except Exception as e:
+        print(f"[{name}] استثنا در ارسال ویدیو: {e}")
+        return False
+
+
+# توابع یوتیوب با RSS و yt-dlp
+def fetch_youtube_rss_videos(handle, last_video_id, seen_ids):
+    try:
+        # دریافت شناسه کانال از طریق yt-dlp به صورت خودکار برای پایداری ۱۰۰٪
+        cmd = ["yt-dlp", "--print", "channel_id", f"https://www.youtube.com/{handle}"]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        channel_id = res.stdout.strip()
+        if not channel_id:
+            return []
+
+        rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+        response = requests.get(rss_url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+        if response.status_code != 200:
+            return []
+
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(response.content)
+        ns = {"a": "http://www.w3.org/2005/Atom", "yt": "http://www.youtube.com/xml/schemas/2015"}
+        
+        videos = []
+        for entry in root.findall("a:entry", ns):
+            vid = entry.find("yt:videoId", ns)
+            title = entry.find("a:title", ns)
+            if vid is None:
                 continue
-            video_id, title, video_url = parts[0], parts[1], parts[2]
-
-            # بررسی وضعیت برای جلوگیری از ارسال تکراری
-            last_sent_id = state.get(f"yt_{url}", "")
-            if last_sent_id == video_id:
-                print(f"No new video for {label}. Latest is already sent.")
+            video_id = vid.text.strip()
+            if video_id in seen_ids or (last_video_id and video_id == last_video_id):
                 continue
+            videos.append({
+                "id": video_id,
+                "title": title.text.strip() if title is not None else "جدید",
+            })
+        return videos
+    except Exception as e:
+        print(f"خطا در پردازش RSS یوتیوب برای {handle}: {e}")
+        return []
 
-            print(f"New video found for {label}: {title} ({video_id})")
 
-            # دانلود ویدیو با فرمت زیر ۴۸ مگابایت و کیفیت مناسب
-            output_template = "downloads/downloaded_video.mp4"
-            os.makedirs("downloads", exist_ok=True)
-            
-            download_cmd = [
-                "yt-dlp",
-                "-f", "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]/best",
-                "--max-filesize", "48m",
-                "-o", output_template,
-                video_url
-            ]
-            dl_res = subprocess.run(download_cmd, capture_output=True, text=True, timeout=300)
-            
-            if dl_res.returncode == 0 and os.path.exists(output_template):
-                caption = f"🎥 {label}: {title}\n🔗 {video_url}"
-                
-                # ارسال به تلگرام و بله
-                send_telegram_video(output_template, caption)
-                send_bale_video(output_template, caption)
+def download_youtube_video(video_id):
+    try:
+        import yt_dlp
+    except ImportError:
+        return None, "yt-dlp نصب نیست"
 
-                # آپدیت وضعیت به عنوان ارسال شده
-                state[f"yt_{url}"] = video_id
-                save_state(state)
-                
-                # پاک کردن فایل موقت
-                try:
-                    os.remove(output_template)
-                except:
-                    pass
-            else:
-                print(f"Failed to download video for {label} or file too large.")
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    out_tmpl = f"temp_yt_{video_id}.%(ext)s"
+    opts = {
+        "format": f"bv*[height<={YOUTUBE_MAX_HEIGHT}][ext=mp4]+ba[ext=m4a]/b[height<={YOUTUBE_MAX_HEIGHT}][ext=mp4]/b",
+        "outtmpl": out_tmpl,
+        "merge_output_format": "mp4",
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "max_filesize": YOUTUBE_MAX_BYTES,
+    }
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([url])
+        for p in Path(".").glob(f"temp_yt_{video_id}.*"):
+            if p.stat().st_size > 0:
+                return p, None
+        return None, "فایل خالی یا بیش از حد بزرگ"
+    except Exception as e:
+        for p in Path(".").glob(f"temp_yt_{video_id}.*"):
+            p.unlink(missing_ok=True)
+        return None, str(e)
 
+
+def deliver_youtube_video(video, label, handle):
+    text = f"🎬 {video['title']}\n\n📺 منبع: YouTube ({label})\n🔗 https://youtu.be/{video['id']}"
+    if len(text) > MAX_CAPTION_LENGTH:
+        text = text[:MAX_CAPTION_LENGTH - 3].rstrip() + "..."
+
+    path, err = download_youtube_video(video["id"])
+    if path is None:
+        print(f"خطا در دانلود ویدیو ({err})؛ ارسال لینک متنی.")
+        r1 = send_message_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, text, "Telegram")
+        r2 = send_message_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, text, "Bale")
+        return any([r1, r2])
+
+    try:
+        r1 = send_video_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, path, text, "Telegram")
+        r2 = send_video_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, path, text, "Bale")
+        return any([r1, r2])
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def process_youtube_channel(chan, channels_state):
+    key = f"yt:{chan['handle']}"
+    chan_data = channels_state.get(key, {})
+    last_video_id = chan_data.get("last_video_id", "")
+    seen_ids = chan_data.get("seen_ids", [])
+
+    print(f"\n==========================================")
+    print(f"بررسی YouTube ({chan['label']} - {chan['handle']})")
+
+    videos = fetch_youtube_rss_videos(chan["handle"], last_video_id, seen_ids)
+    if not videos:
+        print("هیچ ویدیوی جدیدی وجود ندارد.")
+        return {"last_video_id": last_video_id, "seen_ids": seen_ids}
+
+    new_last = last_video_id
+    new_seen = list(seen_ids)
+
+    for video in videos[:YOUTUBE_POLL]:
+        print(f"در حال دانلود و ارسال ویدیوی جدید: {video['title']}")
+        deliver_youtube_video(video, chan["label"], chan["handle"])
+        new_last = video["id"]
+        if video["id"] not in new_seen:
+            new_seen.append(video["id"])
+
+    new_seen = new_seen[-50:]
+    return {"last_video_id": new_last, "seen_ids": new_seen}
+
+
+def deliver_post(post, username, label):
+    is_photo = bool(post["image_url"])
+    caption_or_text = format_content(post["text"], username, label, is_photo=is_photo)
+    results = []
+
+    if is_photo:
+        temp_img = Path(f"temp_{username}_{post['id']}.jpg")
+        try:
+            r = requests.get(post["image_url"], headers=HEADERS, timeout=REQUEST_TIMEOUT)
+            r.raise_for_status()
+            temp_img.write_bytes(r.content)
+
+            r1 = send_photo_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, temp_img, caption_or_text, "Telegram")
+            r2 = send_photo_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, temp_img, caption_or_text, "Bale")
+            results.extend([r1, r2])
         except Exception as e:
-            print(f"Error processing YouTube channel {label}: {e}")
+            print(f"خطا در ارسال تصویر: {e}")
+            return False
+        finally:
+            temp_img.unlink(missing_ok=True)
+    else:
+        r1 = send_message_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, caption_or_text, "Telegram")
+        r2 = send_message_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, caption_or_text, "Telegram")
+        results.extend([r1, r2])
+
+    time.sleep(2)
+    return any(results)
+
+
+def process_channel(chan_info, channels_state):
+    username = chan_info["username"]
+    label = chan_info["label"]
+
+    chan_data = channels_state.get(username, {})
+    if isinstance(chan_data, int):
+        last_id = chan_data
+        seen_ids = [last_id] if last_id > 0 else []
+    else:
+        last_id = int(chan_data.get("last_id", 0))
+        seen_ids = list(chan_data.get("seen_ids", []))
+
+    print(f"\n==========================================")
+    print(f"بررسی Telegram @{username} ({label})")
+
+    try:
+        messages = fetch_channel_messages(username)
+    except Exception as e:
+        print(f"خطا در دریافت پیام‌های @{username}: {e}")
+        return {"last_id": last_id, "seen_ids": seen_ids}
+
+    posts = parse_posts(messages, last_id, seen_ids)
+    if not posts:
+        print("هیچ پیام جدیدی وجود ندارد.")
+        return {"last_id": last_id, "seen_ids": seen_ids}
+
+    new_last_id = last_id
+    new_seen = list(seen_ids)
+
+    for post in posts:
+        print(f"در حال ارسال پیام شناسه {post['id']}...")
+        ok = deliver_post(post, username, label)
+        if ok or True:
+            new_last_id = max(new_last_id, post["id"])
+            if post["id"] not in new_seen:
+                new_seen.append(post["id"])
+
+    new_seen = new_seen[-100:]
+    return {"last_id": new_last_id, "seen_ids": new_seen}
 
 
 def main():
-    state = load_state()
-    print("Starting master channel forwarder (Telegram + YouTube)...")
-    
-    # پردازش کانال‌های یوتیوب و ارسال آخرین ویدیوی جدید (غیرتکراری)
-    process_youtube_channels(state)
-    
-    # بخش کانال‌های تلگرامی شما به قوت خود باقیست...
-    print("Finished checking channels run.")
+    channels_state = load_state()
+
+    # بررسی کانال‌های تلگرام
+    for chan in CHANNELS:
+        res = process_channel(chan, channels_state)
+        channels_state[chan["username"]] = res
+        save_state(channels_state)
+
+    # بررسی کانال‌های یوتیوب
+    for chan in YOUTUBE_CHANNELS:
+        res = process_youtube_channel(chan, channels_state)
+        channels_state[f"yt:{chan['handle']}"] = res
+        save_state(channels_state)
+
+    print("\nعملیات با موفقیت به پایان رسید.")
 
 
 if __name__ == "__main__":
