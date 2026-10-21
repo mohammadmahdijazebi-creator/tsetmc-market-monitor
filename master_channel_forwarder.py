@@ -3,7 +3,7 @@ import os
 import re
 import time
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -30,13 +30,12 @@ YOUTUBE_CHANNELS = [
 ]
 
 STATE_FILE = Path("channels_state.json")
-REQUEST_TIMEOUT = 40
+REQUEST_TIMEOUT = 45
 MAX_CAPTION_LENGTH = 1024
 MAX_TEXT_LENGTH = 4096
 
-# تنظیمات و سقف حجم ویدیوهای یوتیوب (زیر ۵۰ مگابایت)
+# تنظیمات ویدیو (محدودیت حجم ۵۰ مگابایت تلگرام و بله)
 YOUTUBE_POLL = 1
-YOUTUBE_MAX_HEIGHT = 480
 YOUTUBE_MAX_BYTES = 48 * 1024 * 1024
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
@@ -231,7 +230,6 @@ def send_video_dest(endpoint, token, chat_id, video_path, caption, name):
 # ==================== توابع یوتیوب ====================
 
 def resolve_youtube_channel_id(handle):
-    """استخراج شناسه کانال در صورت 404 بودن شناسه اولیه"""
     try:
         url = f"https://www.youtube.com/{handle}"
         r = requests.get(url, headers=HEADERS, timeout=20)
@@ -252,7 +250,6 @@ def fetch_youtube_rss_videos(channel_id, handle, last_video_id, seen_ids):
         rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
         response = requests.get(rss_url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
 
-        # اگر 404 داد، تلاش مجدد برای پیدا کردن شناسه واقعی از روی Handle
         if response.status_code == 404 and handle:
             real_id = resolve_youtube_channel_id(handle)
             if real_id and real_id != channel_id:
@@ -285,75 +282,146 @@ def fetch_youtube_rss_videos(channel_id, handle, last_video_id, seen_ids):
         return []
 
 
-def download_youtube_video(video_id):
-    """دانلود با استفاده از کلاینت‌های mweb/tv جهت دور زدن قطعی bot detection"""
+def download_stream_to_file(download_url, output_path, max_bytes):
+    """دانلود استریم فایل با کنترل دقیق سقف حجم مجاز"""
+    try:
+        with requests.get(download_url, stream=True, timeout=120) as r:
+            r.raise_for_status()
+            total = 0
+            with open(output_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=1024 * 64):
+                    if chunk:
+                        total += len(chunk)
+                        if total > max_bytes:
+                            return False, "حجم ویدیو بیش از ۵۰ مگابایت است."
+                        f.write(chunk)
+        if output_path.exists() and output_path.stat().st_size > 0:
+            return True, None
+        return False, "فایل دانلودی خالی است."
+    except Exception as e:
+        return False, str(e)
+
+
+def download_youtube_video_external(video_id):
+    """
+    دانلود قطعی از طریق سرویس‌های پروکسی (Invidious / Cobalt)
+    برای دور زدن کامل بلاک آی‌پی‌های سرور گیت‌هاب اکشنز
+    """
+    out_file = Path(f"yt_{video_id}.mp4")
+
+    # ۱. تلاش با سرورهای Invidious (فایل مستقیم بدون مسدودی)
+    invidious_instances = [
+        "https://inv.tux.pizza",
+        "https://invidious.nerdvpn.de",
+        "https://invidious.slipfox.xyz",
+        "https://yt.artemislena.eu",
+    ]
+
+    for base in invidious_instances:
+        try:
+            api_url = f"{base}/api/v1/videos/{video_id}"
+            res = requests.get(api_url, timeout=12, headers=HEADERS)
+            if res.status_code == 200:
+                data = res.json()
+                formats = data.get("formatStreams", [])
+                # انتخاب بهترین کیفیت زیر ۴۸۰ یا ۳۶۰ که هم صدا دارد هم تصویر
+                target_url = None
+                for f in reversed(formats):
+                    if f.get("container") == "mp4" or "mp4" in f.get("type", ""):
+                        target_url = f.get("url")
+                        break
+                if target_url:
+                    ok, msg = download_stream_to_file(target_url, out_file, YOUTUBE_MAX_BYTES)
+                    if ok:
+                        return out_file, None
+        except Exception:
+            continue
+
+    # ۲. تلاش دوم با سرویس API کبالت (Cobalt)
+    cobalt_instances = [
+        "https://api.cobalt.tools",
+        "https://cobalt-api.kwiatekm.im",
+    ]
+    for c_api in cobalt_instances:
+        try:
+            payload = {
+                "url": f"https://www.youtube.com/watch?v={video_id}",
+                "videoQuality": "480",
+                "downloadMode": "auto"
+            }
+            headers = {"Accept": "application/json", "Content-Type": "application/json"}
+            res = requests.post(f"{c_api}/", json=payload, headers=headers, timeout=15)
+            if res.status_code == 200:
+                c_data = res.json()
+                d_url = c_data.get("url")
+                if d_url:
+                    ok, msg = download_stream_to_file(d_url, out_file, YOUTUBE_MAX_BYTES)
+                    if ok:
+                        return out_file, None
+        except Exception:
+            continue
+
+    # ۳. اگر هیچ سروری موفق نشد، تلاش با yt-dlp و کلاینت ios
     try:
         import yt_dlp
-    except ImportError:
-        return None, "ماژول yt-dlp نصب نیست"
-
-    url = f"https://www.youtube.com/watch?v={video_id}"
-    out_pattern = f"temp_yt_{video_id}.%(ext)s"
-
-    # آرگومان‌های پیشرفته برای فریب الگوریتم ضدربات یوتیوب در گیت‌هاب اکشنز
-    opts = {
-        "format": f"bestvideo[height<={YOUTUBE_MAX_HEIGHT}][ext=mp4]+bestaudio[ext=m4a]/best[height<={YOUTUBE_MAX_HEIGHT}]/best",
-        "outtmpl": out_pattern,
-        "merge_output_format": "mp4",
-        "quiet": True,
-        "no_warnings": True,
-        "noplaylist": True,
-        "max_filesize": YOUTUBE_MAX_BYTES,
-        "socket_timeout": 30,
-        "retries": 3,
-        "extractor_args": {
-            "youtube": {
-                # استفاده از کلاینت‌های تلوزیونی و موبایل وب که کمترین سخت‌گیری احراز هویت را دارند
-                "player_client": ["mweb", "tv", "android"],
-                "player_skip": ["webpage", "configs"],
-            }
-        },
-        "http_headers": {
-            "User-Agent": (
-                "Mozilla/5.0 (iPad; CPU OS 16_6 like Mac OS X) "
-                "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
-            ),
-            "Accept-Language": "en-US,en;q=0.9",
-        },
-    }
-
-    try:
+        opts = {
+            "format": "best[ext=mp4][height<=480]/best[height<=480]/best",
+            "outtmpl": str(out_file),
+            "max_filesize": YOUTUBE_MAX_BYTES,
+            "quiet": True,
+            "no_warnings": True,
+            "extractor_args": {"youtube": {"player_client": ["ios"]}},
+        }
         with yt_dlp.YoutubeDL(opts) as ydl:
-            ydl.download([url])
-
-        for p in Path(".").glob(f"temp_yt_{video_id}.*"):
-            if p.is_file() and p.stat().st_size > 0:
-                return p, None
-        return None, "فایل ایجاد نشد یا حجم بیش از حد مجاز است"
+            ydl.download([f"https://www.youtube.com/watch?v={video_id}"])
+        if out_file.exists() and out_file.stat().st_size > 0:
+            return out_file, None
     except Exception as e:
-        for p in Path(".").glob(f"temp_yt_{video_id}.*"):
-            p.unlink(missing_ok=True)
-        return None, str(e)
+        pass
+
+    out_file.unlink(missing_ok=True)
+    return None, "عدم امکان دانلود از پروکسی و محدودیت آی‌پی"
 
 
 def deliver_youtube_video(video, label, handle):
-    text = f"🎬 {video['title']}\n\n📺 منبع: YouTube ({label})\n🔗 https://youtu.be/{video['id']}"
-    if len(text) > MAX_CAPTION_LENGTH:
-        text = text[:MAX_CAPTION_LENGTH - 3].rstrip() + "..."
+    video_id = video["id"]
+    title = video["title"]
+    url = f"https://youtu.be/{video_id}"
+    caption = f"🎬 {title}\n\n📺 منبع: YouTube ({label})\n🔗 {url}"
+    if len(caption) > MAX_CAPTION_LENGTH:
+        caption = caption[:MAX_CAPTION_LENGTH - 3].rstrip() + "..."
 
-    path, err = download_youtube_video(video["id"])
-    if path is None:
-        print(f"دانلود مستقیم ویدیو مقدور نشد ({err})؛ ارسال لینک متنی...")
-        r1 = send_message_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, text, "Telegram")
-        r2 = send_message_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, text, "Bale")
-        return any([r1, r2])
+    # ۱. تلاش برای دانلود فایل کامل ویدیو
+    video_path, err = download_youtube_video_external(video_id)
+    if video_path and video_path.exists():
+        try:
+            print(f"ویدیو با موفقیت دانلود شد ({round(video_path.stat().st_size / (1024*1024), 2)} MB). در حال ارسال...")
+            r1 = send_video_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, video_path, caption, "Telegram")
+            r2 = send_video_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, video_path, caption, "Bale")
+            return any([r1, r2])
+        finally:
+            video_path.unlink(missing_ok=True)
 
+    # ۲. در صورت ناموفق بودن دانلود ویدیو، ارسال کاور باکیفیت ویدیویی به همراه لینک (بسیار زیباتر از متن خالی)
+    print(f"دانلود مستقیم ویدیو میسر نشد ({err}). ارسال به همراه کاور رسمی ویدیو...")
+    thumb_path = Path(f"thumb_{video_id}.jpg")
     try:
-        r1 = send_video_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, path, text, "Telegram")
-        r2 = send_video_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, path, text, "Bale")
-        return any([r1, r2])
+        thumb_url = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+        r = requests.get(thumb_url, headers=HEADERS, timeout=20)
+        if r.status_code == 200:
+            thumb_path.write_bytes(r.content)
+            r1 = send_photo_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, thumb_path, caption, "Telegram")
+            r2 = send_photo_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, thumb_path, caption, "Bale")
+            return any([r1, r2])
+    except Exception:
+        pass
     finally:
-        path.unlink(missing_ok=True)
+        thumb_path.unlink(missing_ok=True)
+
+    # ۳. در بدترین حالت ارسال پیام متنی
+    r1 = send_message_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, caption, "Telegram")
+    r2 = send_message_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, caption, "Bale")
+    return any([r1, r2])
 
 
 def process_youtube_channel(chan, channels_state):
@@ -374,7 +442,7 @@ def process_youtube_channel(chan, channels_state):
     new_seen = list(seen_ids)
 
     for video in videos[:YOUTUBE_POLL]:
-        print(f"در حال دانلود و ارسال: {video['title']}")
+        print(f"در حال پردازش: {video['title']}")
         deliver_youtube_video(video, chan["label"], chan["handle"])
         new_last = video["id"]
         if video["id"] not in new_seen:
@@ -457,13 +525,13 @@ def process_channel(chan_info, channels_state):
 def main():
     channels_state = load_state()
 
-    # ۱. بررسی کانال‌های تلگرام
+    # ۱. پردازش کانال‌های تلگرام
     for chan in CHANNELS:
         res = process_channel(chan, channels_state)
         channels_state[chan["username"]] = res
         save_state(channels_state)
 
-    # ۲. بررسی کانال‌های یوتیوب
+    # ۲. پردازش کانال‌های یوتیوب
     for chan in YOUTUBE_CHANNELS:
         res = process_youtube_channel(chan, channels_state)
         channels_state[f"yt:{chan['handle']}"] = res
