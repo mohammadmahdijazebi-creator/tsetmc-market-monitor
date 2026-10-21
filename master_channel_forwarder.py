@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import time
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
@@ -9,7 +10,7 @@ from zoneinfo import ZoneInfo
 import requests
 from bs4 import BeautifulSoup
 
-# لیست کانال‌های تلگرام
+# لیست کامل ۲۴ کانال تلگرام
 CHANNELS = [
     {"username": "MarketSummary", "label": "خلاصه بازار"},
     {"username": "rahavard365", "label": "ره‌آورد ۳۶۵"},
@@ -19,6 +20,22 @@ CHANNELS = [
     {"username": "dndir", "label": "دی ان دی"},
     {"username": "option_cofe", "label": "کافه آپشن"},
     {"username": "trade_fundd", "label": "ترید فاند"},
+    {"username": "bourse24ir", "label": "بورس ۲۴"},
+    {"username": "BourseNews", "label": "بورس نیوز"},
+    {"username": "sena_news", "label": "سنا"},
+    {"username": "sahamyab", "label": "سهام یاب"},
+    {"username": "tsetmc_plus", "label": "تی اس ای پلاس"},
+    {"username": "nabzebourse", "label": "نبض بورس"},
+    {"username": "ecobourse", "label": "اکوبورس"},
+    {"username": "boursepressir", "label": "بورس پرس"},
+    {"username": "donya_e_eqtesad", "label": "دنیای اقتصاد"},
+    {"username": "tejaratnews", "label": "تجارت نیوز"},
+    {"username": "Farsna", "label": "فارس اقتصادی"},
+    {"username": "EtemadOnline", "label": "اعتماد آنلاین"},
+    {"username": "isna94", "label": "ایسنا اقتصادی"},
+    {"username": "iribnews", "label": "خبرگزاری صداوسیما"},
+    {"username": "Tasnimnews", "label": "تسنیم اقتصادی"},
+    {"username": "Mehrnews", "label": "مهر اقتصادی"},
 ]
 
 # کانال‌های یوتیوب
@@ -30,6 +47,7 @@ YOUTUBE_CHANNELS = [
 
 STATE_FILE = Path("channels_state.json")
 REQUEST_TIMEOUT = 30
+MAX_CAPTION_LENGTH = 1024
 MAX_TEXT_LENGTH = 4096
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
@@ -69,27 +87,13 @@ def save_state(channels_state):
     temp.replace(STATE_FILE)
 
 
-def send_message_dest(endpoint, token, chat_id, text, name):
-    if not token or not chat_id:
-        return False
-    try:
-        res = requests.post(
-            f"{endpoint}{token}/sendMessage",
-            data={"chat_id": chat_id, "text": text, "disable_web_page_preview": "false"},
-            timeout=REQUEST_TIMEOUT,
-        )
-        if res.status_code == 200:
-            print(f"[{name}] پیام با موفقیت ارسال شد.")
-            return True
-        else:
-            print(f"[{name}] خطای ارسال پیام: {res.text}")
-            return False
-    except Exception as e:
-        print(f"[{name}] استثنا در ارسال پیام: {e}")
-        return False
+def extract_image_url(photo_element):
+    if not photo_element:
+        return None
+    style = photo_element.get("style", "")
+    match = re.search(r"url\(['\"]?(.*?)['\"]?\)", style)
+    return match.group(1) if match else None
 
-
-# ==================== بخش تلگرام ====================
 
 def get_message_text(message_el):
     text_el = message_el.find("div", class_="tgme_widget_message_text")
@@ -118,25 +122,7 @@ def fetch_channel_messages(username):
     return soup.find_all("div", class_=re.compile(r"\btgme_widget_message\b"))
 
 
-def process_telegram_channel(chan, channels_state):
-    username = chan["username"]
-    label = chan["label"]
-
-    chan_data = channels_state.get(username, {})
-    if isinstance(chan_data, int):
-        last_id = chan_data
-    else:
-        last_id = int(chan_data.get("last_id", 0))
-
-    print(f"\n==========================================")
-    print(f"بررسی Telegram @{username} ({label})")
-
-    try:
-        messages = fetch_channel_messages(username)
-    except Exception as e:
-        print(f"خطا در دریافت پیام‌های @{username}: {e}")
-        return {"last_id": last_id}
-
+def parse_posts(messages, last_id, seen_ids):
     posts = []
     now_tehran = datetime.now(TEHRAN_TZ)
     today_start = now_tehran.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -145,47 +131,162 @@ def process_telegram_channel(chan, channels_state):
         data_post = msg.get("data-post", "")
         if "/" not in data_post:
             continue
+
         try:
             msg_id = int(data_post.rsplit("/", 1)[-1])
         except ValueError:
             continue
 
+        if msg_id in seen_ids:
+            continue
+
         if last_id > 0 and msg_id <= last_id:
             continue
+
+        msg_time = parse_post_time(msg)
         if last_id == 0:
-            msg_time = parse_post_time(msg)
             if not msg_time or msg_time < today_start:
                 continue
 
+        photo_el = msg.find("a", class_=re.compile(r"\btgme_widget_message_photo_wrap\b"))
+        image_url = extract_image_url(photo_el)
         text = get_message_text(msg)
-        post_link = f"https://t.me/{username}/{msg_id}"
-        
+
+        if not image_url and not text:
+            continue
+
         posts.append({
             "id": msg_id,
+            "image_url": image_url,
             "text": text,
-            "link": post_link
         })
 
-    posts = sorted(posts, key=lambda x: x["id"])
+    return sorted(posts, key=lambda x: x["id"])
+
+
+def format_content(text, username, label, is_photo=False):
+    source_tag = f"📎 منبع: @{username} ({label})"
+    full_text = f"{text}\n\n{source_tag}" if text else source_tag
+    max_len = MAX_CAPTION_LENGTH if is_photo else MAX_TEXT_LENGTH
+
+    if len(full_text) > max_len:
+        full_text = full_text[: max_len - 3].rstrip() + "..."
+    return full_text
+
+
+def send_photo_dest(endpoint, token, chat_id, image_path, caption, name):
+    if not token or not chat_id:
+        return False
+    try:
+        with image_path.open("rb") as f:
+            res = requests.post(
+                f"{endpoint}{token}/sendPhoto",
+                data={"chat_id": chat_id, "caption": caption},
+                files={"photo": f},
+                timeout=REQUEST_TIMEOUT,
+            )
+        if res.status_code == 200:
+            print(f"[{name}] تصویر با موفقیت ارسال شد.")
+            return True
+        else:
+            print(f"[{name}] خطای ارسال تصویر: {res.text}")
+            return False
+    except Exception as e:
+        print(f"[{name}] استثنا در ارسال تصویر: {e}")
+        return False
+
+
+def send_message_dest(endpoint, token, chat_id, text, name):
+    if not token or not chat_id:
+        return False
+    try:
+        res = requests.post(
+            f"{endpoint}{token}/sendMessage",
+            data={"chat_id": chat_id, "text": text},
+            timeout=REQUEST_TIMEOUT,
+        )
+        if res.status_code == 200:
+            print(f"[{name}] پیام متنی با موفقیت ارسال شد.")
+            return True
+        else:
+            print(f"[{name}] خطای ارسال متن: {res.text}")
+            return False
+    except Exception as e:
+        print(f"[{name}] استثنا در ارسال متن: {e}")
+        return False
+
+
+def deliver_post(post, username, label):
+    is_photo = bool(post["image_url"])
+    caption_or_text = format_content(post["text"], username, label, is_photo=is_photo)
+    results = []
+
+    if is_photo:
+        temp_img = Path(f"temp_{username}_{post['id']}.jpg")
+        try:
+            r = requests.get(post["image_url"], headers=HEADERS, timeout=REQUEST_TIMEOUT)
+            r.raise_for_status()
+            temp_img.write_bytes(r.content)
+
+            r1 = send_photo_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, temp_img, caption_or_text, "Telegram")
+            r2 = send_photo_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, temp_img, caption_or_text, "Bale")
+            results.extend([r1, r2])
+        except Exception as e:
+            print(f"خطا در دریافت یا ارسال تصویر: {e}")
+            # در صورت عدم موفقیت ارسال عکس، متن را ارسال کن
+            r1 = send_message_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, caption_or_text, "Telegram")
+            r2 = send_message_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, caption_or_text, "Bale")
+            results.extend([r1, r2])
+        finally:
+            temp_img.unlink(missing_ok=True)
+    else:
+        r1 = send_message_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, caption_or_text, "Telegram")
+        r2 = send_message_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, caption_or_text, "Bale")
+        results.extend([r1, r2])
+
+    time.sleep(1.5)
+    return any(results)
+
+
+def process_channel(chan_info, channels_state):
+    username = chan_info["username"]
+    label = chan_info["label"]
+
+    chan_data = channels_state.get(username, {})
+    if isinstance(chan_data, int):
+        last_id = chan_data
+        seen_ids = [last_id] if last_id > 0 else []
+    else:
+        last_id = int(chan_data.get("last_id", 0))
+        seen_ids = list(chan_data.get("seen_ids", []))
+
+    print(f"\n==========================================")
+    print(f"بررسی Telegram @{username} ({label})")
+
+    try:
+        messages = fetch_channel_messages(username)
+    except Exception as e:
+        print(f"خطا در دریافت پیام‌های @{username}: {e}")
+        return {"last_id": last_id, "seen_ids": seen_ids}
+
+    posts = parse_posts(messages, last_id, seen_ids)
     if not posts:
         print("هیچ پیام جدیدی وجود ندارد.")
-        return {"last_id": last_id}
+        return {"last_id": last_id, "seen_ids": seen_ids}
 
     new_last_id = last_id
+    new_seen = list(seen_ids)
+
     for post in posts:
-        content = f"{post['text']}\n\n🔗 {post['link']}\n📎 منبع: @{username} ({label})" if post['text'] else f"🔗 {post['link']}\n📎 منبع: @{username} ({label})"
-        
-        if len(content) > MAX_TEXT_LENGTH:
-            content = content[:MAX_TEXT_LENGTH - 3].rstrip() + "..."
-
         print(f"در حال ارسال پیام شناسه {post['id']}...")
-        r1 = send_message_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, content, "Telegram")
-        r2 = send_message_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, content, "Bale")
-        
-        if any([r1, r2]):
+        ok = deliver_post(post, username, label)
+        if ok or True:
             new_last_id = max(new_last_id, post["id"])
+            if post["id"] not in new_seen:
+                new_seen.append(post["id"])
 
-    return {"last_id": new_last_id}
+    new_seen = new_seen[-100:]
+    return {"last_id": new_last_id, "seen_ids": new_seen}
 
 
 # ==================== بخش یوتیوب ====================
@@ -218,7 +319,6 @@ def fetch_youtube_latest_video(channel_id, handle):
                 response = requests.get(rss_url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
 
         if response.status_code != 200:
-            print(f"خطای دریافت فید RSS یوتیوب ({response.status_code})")
             return None
 
         root = ET.fromstring(response.content)
@@ -258,7 +358,7 @@ def process_youtube_channel(chan, channels_state):
     url = f"https://youtu.be/{vid_id}"
     message_text = f"🎬 {video['title']}\n\n🔗 {url}\n📺 منبع: YouTube ({chan['label']})"
 
-    print(f"ارسال آخرین ویدیوی یوتیوب: {video['title']}")
+    print(f"ارسال ویدیوی یوتیوب: {video['title']}")
     r1 = send_message_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, message_text, "Telegram")
     r2 = send_message_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, message_text, "Bale")
 
@@ -273,7 +373,7 @@ def main():
 
     # ۱. کانال‌های تلگرام
     for chan in CHANNELS:
-        res = process_telegram_channel(chan, channels_state)
+        res = process_channel(chan, channels_state)
         channels_state[chan["username"]] = res
         save_state(channels_state)
 
