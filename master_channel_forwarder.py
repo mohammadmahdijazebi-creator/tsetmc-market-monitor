@@ -1,7 +1,6 @@
 import json
 import os
 import re
-import subprocess
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
@@ -23,11 +22,11 @@ CHANNELS = [
     {"username": "trade_fundd", "label": "ترید فاند"},
 ]
 
-# ۳ کانال یوتیوب مدنظر شما
+# ۳ کانال یوتیوب مدنظر شما (با Channel ID ثابت و بدون نیاز به جست‌وجو)
 YOUTUBE_CHANNELS = [
-    {"handle": "@feghtesad", "label": "اقتصاد"},
-    {"handle": "@BashgahPol", "label": "باشگاه پول"},
-    {"handle": "@aliichii-tube", "label": "علیچی"},
+    {"handle": "@feghtesad", "channel_id": "UCl6-kUbADci3ZSINUcRZJcA", "label": "اقتصاد"},
+    {"handle": "@BashgahPol", "channel_id": "UCfix78juvP77pMnYO0fyhMA", "label": "باشگاه پول"},
+    {"handle": "@aliichii-tube", "channel_id": "UCNZ19zmjqvZm24qhzB1pQHQ", "label": "علیچی"},
 ]
 
 STATE_FILE = Path("channels_state.json")
@@ -231,37 +230,8 @@ def send_video_dest(endpoint, token, chat_id, video_path, caption, name):
 
 # ==================== توابع یوتیوب ====================
 
-def get_youtube_channel_id(handle):
-    """استخراج Channel ID از صفحه کانال برای ساخت آدرس RSS"""
-    url = f"https://www.youtube.com/{handle}"
+def fetch_youtube_rss_videos(channel_id, last_video_id, seen_ids):
     try:
-        r = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
-        if r.status_code == 200:
-            # جستجوی channelId در سورس صفحه یوتیوب
-            match = re.search(r'itemprop="channelId"\s+content="([^"]+)"', r.text)
-            if match:
-                return match.group(1)
-            match2 = re.search(r'"channelId":"([^"]+)"', r.text)
-            if match2:
-                return match2.group(1)
-    except Exception as e:
-        print(f"خطا در استخراج شناسه برای {handle}: {e}")
-    return None
-
-
-def fetch_youtube_rss_videos(handle, last_video_id, seen_ids):
-    try:
-        channel_id = get_youtube_channel_id(handle)
-        if not channel_id:
-            # اگر از صفحه پیدا نشد، از طریق دستور yt-dlp دریافت شود
-            cmd = ["yt-dlp", "--print", "channel_id", f"https://www.youtube.com/{handle}"]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            channel_id = res.stdout.strip()
-
-        if not channel_id:
-            print(f"شناسه کانال برای {handle} یافت نشد.")
-            return []
-
         rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
         response = requests.get(rss_url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
         if response.status_code != 200:
@@ -286,7 +256,7 @@ def fetch_youtube_rss_videos(handle, last_video_id, seen_ids):
             })
         return videos
     except Exception as e:
-        print(f"خطا در پردازش فید یوتیوب {handle}: {e}")
+        print(f"خطا در پردازش فید یوتیوب {channel_id}: {e}")
         return []
 
 
@@ -348,7 +318,7 @@ def process_youtube_channel(chan, channels_state):
     print(f"\n==========================================")
     print(f"بررسی YouTube ({chan['label']} - {chan['handle']})")
 
-    videos = fetch_youtube_rss_videos(chan["handle"], last_video_id, seen_ids)
+    videos = fetch_youtube_rss_videos(chan["channel_id"], last_video_id, seen_ids)
     if not videos:
         print("هیچ ویدیوی جدیدی وجود ندارد.")
         return {"last_video_id": last_video_id, "seen_ids": seen_ids}
