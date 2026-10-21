@@ -1,7 +1,7 @@
 {
   "channels": {
     "MarketSummary": {
-      "last_id": 31465,
+      "last_id": 31467,
       "seen_ids": [
         31412,
         31413,
@@ -54,7 +54,8 @@
         31462,
         31463,
         31464,
-        31465
+        31465,
+        31467
       ]
     },
     "rahavard365": {
@@ -1503,7 +1504,7 @@
       "seen_ids": []
     },
     "yt:@feghtesad": {
-      "last_video_id": "HhhwkpgSlLg",
+      "last_video_id": "8Pt0QQ4x9cA",
       "seen_ids": [
         "UE3aj9N35Vc",
         "h9PYwzwwluI",
@@ -1513,11 +1514,12 @@
         "XM0u3AhlFaA",
         "ygv0AF_-r-w",
         "4p0AO_yUxWE",
-        "HhhwkpgSlLg"
+        "HhhwkpgSlLg",
+        "8Pt0QQ4x9cA"
       ]
     },
     "yt:@BashgahPol": {
-      "last_video_id": "SApO4D2eY0Q",
+      "last_video_id": "BgIUecP0trg",
       "seen_ids": [
         "Qs4UlfPqIic",
         "S-84NsyT1Wo",
@@ -1527,17 +1529,19 @@
         "GS1G9COSePg",
         "cTVwkKUvjhs",
         "zLlINpzhAbw",
-        "SApO4D2eY0Q"
+        "SApO4D2eY0Q",
+        "BgIUecP0trg"
       ]
     },
     "yt:@aliichii-tube": {
-      "last_video_id": "GxhMQfwkSOk",
+      "last_video_id": "DGnHebbG5y4",
       "seen_ids": [
         "wQ8dX47zPg0",
         "bxKFdqWzu7A",
         "R_TpsBDUCCk",
         "7k9J32GNvaw",
-        "GxhMQfwkSOk"
+        "GxhMQfwkSOk",
+        "DGnHebbG5y4"
       ]
     }
   }
