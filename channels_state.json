@@ -1438,5 +1438,260 @@
       "last_id": 0,
       "seen_ids": []
     }
+  },
+  "rasadkhoneh": {
+    "seen_keys": [
+      "tg:rasadkhoneh:7045",
+      "tg:rasadkhoneh:7047"
+    ]
+  },
+  "MarketSummary": {
+    "seen_keys": [
+      "tg:MarketSummary:31460",
+      "tg:MarketSummary:31461",
+      "tg:MarketSummary:31462",
+      "tg:MarketSummary:31463",
+      "tg:MarketSummary:31464",
+      "tg:MarketSummary:31465"
+    ]
+  },
+  "option_cofe": {
+    "seen_keys": [
+      "tg:option_cofe:3334",
+      "tg:option_cofe:3336",
+      "tg:option_cofe:3337",
+      "tg:option_cofe:3338",
+      "tg:option_cofe:3339",
+      "tg:option_cofe:3340",
+      "tg:option_cofe:3341",
+      "tg:option_cofe:3342",
+      "tg:option_cofe:3343"
+    ]
+  },
+  "rahavard365": {
+    "seen_keys": [
+      "tg:rahavard365:58554",
+      "tg:rahavard365:58555",
+      "tg:rahavard365:58556",
+      "tg:rahavard365:58557",
+      "tg:rahavard365:58558"
+    ]
+  },
+  "etfplus": {
+    "seen_keys": [
+      "tg:etfplus:3789",
+      "tg:etfplus:3790",
+      "tg:etfplus:3791",
+      "tg:etfplus:3792",
+      "tg:etfplus:3793",
+      "tg:etfplus:3794",
+      "tg:etfplus:3795",
+      "tg:etfplus:3796"
+    ]
+  },
+  "trade_fundd": {
+    "seen_keys": [
+      "tg:trade_fundd:11729",
+      "tg:trade_fundd:11730",
+      "tg:trade_fundd:11731",
+      "tg:trade_fundd:11732",
+      "tg:trade_fundd:11733",
+      "tg:trade_fundd:11734",
+      "tg:trade_fundd:11735",
+      "tg:trade_fundd:11736",
+      "tg:trade_fundd:11738",
+      "tg:trade_fundd:11739",
+      "tg:trade_fundd:11740",
+      "tg:trade_fundd:11741",
+      "tg:trade_fundd:11742",
+      "tg:trade_fundd:11743",
+      "tg:trade_fundd:11744",
+      "tg:trade_fundd:11748"
+    ]
+  },
+  "NoavaranAmin": {
+    "seen_keys": [
+      "tg:NoavaranAmin:127585",
+      "tg:NoavaranAmin:127586",
+      "tg:NoavaranAmin:127587",
+      "tg:NoavaranAmin:127588",
+      "tg:NoavaranAmin:127589",
+      "tg:NoavaranAmin:127590",
+      "tg:NoavaranAmin:127591",
+      "tg:NoavaranAmin:127592",
+      "tg:NoavaranAmin:127593",
+      "tg:NoavaranAmin:127594",
+      "tg:NoavaranAmin:127595",
+      "tg:NoavaranAmin:127596",
+      "tg:NoavaranAmin:127597",
+      "tg:NoavaranAmin:127598",
+      "tg:NoavaranAmin:127599",
+      "tg:NoavaranAmin:127600",
+      "tg:NoavaranAmin:127601",
+      "tg:NoavaranAmin:127602",
+      "tg:NoavaranAmin:127603",
+      "tg:NoavaranAmin:127604"
+    ]
+  },
+  "feghtesad": {
+    "seen_keys": [
+      "tg:feghtesad:38083"
+    ]
+  },
+  "bourse_traderir": {
+    "seen_keys": [
+      "tg:bourse_traderir:357200",
+      "tg:bourse_traderir:357201",
+      "tg:bourse_traderir:357202",
+      "tg:bourse_traderir:357203",
+      "tg:bourse_traderir:357204",
+      "tg:bourse_traderir:357205",
+      "tg:bourse_traderir:357206",
+      "tg:bourse_traderir:357207",
+      "tg:bourse_traderir:357208",
+      "tg:bourse_traderir:357209",
+      "tg:bourse_traderir:357210",
+      "tg:bourse_traderir:357211",
+      "tg:bourse_traderir:357212",
+      "tg:bourse_traderir:357213",
+      "tg:bourse_traderir:357214",
+      "tg:bourse_traderir:357215",
+      "tg:bourse_traderir:357216",
+      "tg:bourse_traderir:357217",
+      "tg:bourse_traderir:357218",
+      "tg:bourse_traderir:357219"
+    ]
+  },
+  "fundvesting": {
+    "seen_keys": [
+      "tg:fundvesting:3857",
+      "tg:fundvesting:3858",
+      "tg:fundvesting:3859",
+      "tg:fundvesting:3860",
+      "tg:fundvesting:3861",
+      "tg:fundvesting:3862",
+      "tg:fundvesting:3863",
+      "tg:fundvesting:3864"
+    ]
+  },
+  "option_school": {
+    "seen_keys": [
+      "tg:option_school:7827",
+      "tg:option_school:7828",
+      "tg:option_school:7830",
+      "tg:option_school:7833"
+    ]
+  },
+  "NerkhTv1": {
+    "seen_keys": [
+      "tg:NerkhTv1:48092",
+      "tg:NerkhTv1:48093",
+      "tg:NerkhTv1:48094",
+      "tg:NerkhTv1:48095",
+      "tg:NerkhTv1:48096",
+      "tg:NerkhTv1:48097",
+      "tg:NerkhTv1:48098",
+      "tg:NerkhTv1:48099",
+      "tg:NerkhTv1:48100",
+      "tg:NerkhTv1:48101"
+    ]
+  },
+  "navidacademy_option": {
+    "seen_keys": [
+      "tg:navidacademy_option:1719"
+    ]
+  },
+  "AgahMoshaver": {
+    "seen_keys": [
+      "tg:AgahMoshaver:135768",
+      "tg:AgahMoshaver:135769",
+      "tg:AgahMoshaver:135770",
+      "tg:AgahMoshaver:135771",
+      "tg:AgahMoshaver:135772",
+      "tg:AgahMoshaver:135773",
+      "tg:AgahMoshaver:135774",
+      "tg:AgahMoshaver:135775",
+      "tg:AgahMoshaver:135776",
+      "tg:AgahMoshaver:135777",
+      "tg:AgahMoshaver:135778",
+      "tg:AgahMoshaver:135779",
+      "tg:AgahMoshaver:135780",
+      "tg:AgahMoshaver:135781",
+      "tg:AgahMoshaver:135785",
+      "tg:AgahMoshaver:135787",
+      "tg:AgahMoshaver:135788"
+    ]
+  },
+  "dndir": {
+    "seen_keys": [
+      "tg:dndir:19581",
+      "tg:dndir:19582",
+      "tg:dndir:19583",
+      "tg:dndir:19584",
+      "tg:dndir:19585",
+      "tg:dndir:19586",
+      "tg:dndir:19587",
+      "tg:dndir:19588",
+      "tg:dndir:19589",
+      "tg:dndir:19590",
+      "tg:dndir:19591",
+      "tg:dndir:19592",
+      "tg:dndir:19593",
+      "tg:dndir:19594",
+      "tg:dndir:19595",
+      "tg:dndir:19596"
+    ]
+  },
+  "betasahm1": {
+    "seen_keys": [
+      "tg:betasahm1:243506",
+      "tg:betasahm1:243507",
+      "tg:betasahm1:243508",
+      "tg:betasahm1:243509",
+      "tg:betasahm1:243510",
+      "tg:betasahm1:243511",
+      "tg:betasahm1:243512",
+      "tg:betasahm1:243513",
+      "tg:betasahm1:243514",
+      "tg:betasahm1:243515",
+      "tg:betasahm1:243516",
+      "tg:betasahm1:243517",
+      "tg:betasahm1:243518",
+      "tg:betasahm1:243519",
+      "tg:betasahm1:243520",
+      "tg:betasahm1:243522",
+      "tg:betasahm1:243523",
+      "tg:betasahm1:243524",
+      "tg:betasahm1:243525"
+    ]
+  },
+  "pishrobroker": {
+    "seen_keys": [
+      "tg:pishrobroker:17797",
+      "tg:pishrobroker:17798",
+      "tg:pishrobroker:17799",
+      "tg:pishrobroker:17800",
+      "tg:pishrobroker:17801",
+      "tg:pishrobroker:17802",
+      "tg:pishrobroker:17805",
+      "tg:pishrobroker:17806",
+      "tg:pishrobroker:17807",
+      "tg:pishrobroker:17808",
+      "tg:pishrobroker:17809",
+      "tg:pishrobroker:17810",
+      "tg:pishrobroker:17811",
+      "tg:pishrobroker:17812",
+      "tg:pishrobroker:17814",
+      "tg:pishrobroker:17815",
+      "tg:pishrobroker:17816",
+      "tg:pishrobroker:17817"
+    ]
+  },
+  "ebi_hajiahmadi_Official": {
+    "seen_keys": [
+      "tg:ebi_hajiahmadi_Official:7793",
+      "tg:ebi_hajiahmadi_Official:7794",
+      "tg:ebi_hajiahmadi_Official:7795"
+    ]
   }
 }
