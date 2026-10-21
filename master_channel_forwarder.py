@@ -35,7 +35,7 @@ REQUEST_TIMEOUT = 45
 MAX_CAPTION_LENGTH = 1024
 MAX_TEXT_LENGTH = 4096
 
-# تنظیمات ویدیو (محدودیت سقف تلگرام و بله ۵۰ مگابایت است)
+# تنظیمات ویدیو و صوت
 YOUTUBE_POLL = 1
 YOUTUBE_MAX_BYTES = 48 * 1024 * 1024  # 48 MB
 
@@ -164,6 +164,8 @@ def format_content(text, username, label, is_photo=False):
     return full_text
 
 
+# ==================== توابع ارسال تلگرام و بله ====================
+
 def send_photo_dest(endpoint, token, chat_id, image_path, caption, name):
     if not token or not chat_id:
         return False
@@ -225,6 +227,46 @@ def send_video_dest(endpoint, token, chat_id, video_path, caption, name):
             return False
     except Exception as e:
         print(f"[{name}] استثنا در ارسال ویدیو: {e}")
+        return False
+
+
+def send_audio_dest(endpoint, token, chat_id, audio_path, caption, title, performer, name):
+    """ارسال فایل صوتی به تلگرام و بله با برچسب عنوان و پادکست"""
+    if not token or not chat_id:
+        return False
+    try:
+        data = {
+            "chat_id": chat_id,
+            "caption": caption,
+            "title": title[:64] if title else "یوتیوب",
+            "performer": performer[:64] if performer else "یوتیوب"
+        }
+        with audio_path.open("rb") as f:
+            res = requests.post(
+                f"{endpoint}{token}/sendAudio",
+                data=data,
+                files={"audio": f},
+                timeout=600,
+            )
+        if res.status_code == 200:
+            print(f"[{name}] فایل صوتی پادکست با موفقیت ارسال شد.")
+            return True
+        else:
+            # در صورت عدم پشتیبانی بله از sendAudio، با sendDocument فرستاده شود
+            with audio_path.open("rb") as f2:
+                res_doc = requests.post(
+                    f"{endpoint}{token}/sendDocument",
+                    data={"chat_id": chat_id, "caption": caption},
+                    files={"document": f2},
+                    timeout=600,
+                )
+            if res_doc.status_code == 200:
+                print(f"[{name}] فایل صوتی (سند) با موفقیت ارسال شد.")
+                return True
+            print(f"[{name}] خطای ارسال فایل صوتی: {res.text}")
+            return False
+    except Exception as e:
+        print(f"[{name}] استثنا در ارسال صوت: {e}")
         return False
 
 
@@ -293,7 +335,7 @@ def download_stream_to_file(download_url, output_path, max_bytes):
                     if chunk:
                         total += len(chunk)
                         if total > max_bytes:
-                            print(f"حجم ویدیو ({round(total/(1024*1024), 1)}MB) بیش از سقف مجاز (۴۸ مگابایت) است.")
+                            print(f"حجم فایل ({round(total/(1024*1024), 1)}MB) بیش از سقف مجاز ({round(max_bytes/(1024*1024))}MB) است.")
                             return False
                         f.write(chunk)
         if output_path.exists() and output_path.stat().st_size > 1024:
@@ -304,8 +346,62 @@ def download_stream_to_file(download_url, output_path, max_bytes):
         return False
 
 
+def try_download_audio_ytdlp(video_id, out_audio_path):
+    """دانلود نسخه صوتی MP3/M4A به کمک کلاینت وب/تلویزیون با حجم بسیار سبک"""
+    cmd = [
+        "yt-dlp",
+        "--extractor-args", "youtube:player_client=tv_embedded,web_embedded",
+        "--no-playlist",
+        "-f", "ba/ba*/140/worst[ext=m4a]",
+        "--max-filesize", "48M",
+        "-o", str(out_audio_path),
+        f"https://www.youtube.com/watch?v={video_id}"
+    ]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if p.returncode == 0 and out_audio_path.exists() and out_audio_path.stat().st_size > 1024:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def download_youtube_audio_external(video_id):
+    """استخراج فایل صوتی (برای ویدیوهای سنگین و طولانی)"""
+    out_audio = Path(f"yt_audio_{video_id}.m4a")
+
+    # گام ۱: دانلود صدا با کلاینت yt-dlp tv_embedded
+    print("تلاش برای دریافت صوت سبک ویدیوی طولانی...")
+    if try_download_audio_ytdlp(video_id, out_audio):
+        return out_audio
+
+    # گام ۲: دریافت لینک صوتی از سرورهای Piped
+    piped_instances = [
+        "https://pipedapi.leptons.xyz",
+        "https://api.piped.privacydev.net",
+        "https://piped-api.lunar.icu",
+        "https://pipedapi.drgns.space",
+    ]
+    for p_url in piped_instances:
+        try:
+            r = requests.get(f"{p_url}/streams/{video_id}", headers=HEADERS, timeout=12)
+            if r.status_code == 200:
+                data = r.json()
+                audio_streams = data.get("audioStreams", [])
+                if audio_streams:
+                    # انتخاب استریم صوتی کم‌حجم
+                    chosen = audio_streams[-1].get("url")
+                    if chosen and download_stream_to_file(chosen, out_audio, YOUTUBE_MAX_BYTES):
+                        return out_audio
+        except Exception:
+            continue
+
+    out_audio.unlink(missing_ok=True)
+    return None
+
+
 def try_ytdlp_with_fallback(video_id, out_file):
-    """تلاش با yt-dlp کلاینت tv و فرمت فشرده کمتر از ۴۸ مگابایت"""
+    """تلاش برای دانلود ویدیو در صورتی که حجم کمتر از ۴۸ مگابایت باشد"""
     cmd = [
         "yt-dlp",
         "--extractor-args", "youtube:player_client=tv_embedded,web_embedded",
@@ -327,61 +423,34 @@ def try_ytdlp_with_fallback(video_id, out_file):
 def download_youtube_video_external(video_id):
     out_file = Path(f"yt_{video_id}.mp4")
 
-    # گام ۱: تست با yt-dlp کلاینت tv_embedded (اغلب برای یوتیوب‌های آموزشی با حجم کم مستقیم کار می‌کند)
-    print("بررسی امکان دانلود مستقیم با حجم مجاز...")
+    # تست با yt-dlp
     if try_ytdlp_with_fallback(video_id, out_file):
-        return out_file, None
+        return out_file
 
-    # گام ۲: سرورهای فعال Piped API
+    # تست استریم Piped برای ویدیوهای کوتاه
     piped_instances = [
         "https://pipedapi.leptons.xyz",
         "https://api.piped.privacydev.net",
         "https://piped-api.lunar.icu",
-        "https://pipedapi.drgns.space",
     ]
     for p_url in piped_instances:
         try:
-            print(f"تلاش با سرور پایپد: {p_url}...")
             r = requests.get(f"{p_url}/streams/{video_id}", headers=HEADERS, timeout=12)
             if r.status_code == 200:
                 data = r.json()
                 streams = data.get("videoStreams", [])
-                
-                # به دنبال کم‌حجم‌ترین کیفیت سازگار با تلگرام (360p یا 240p)
                 valid = [s for s in streams if s.get("format") == "MPEG_4" and not s.get("videoOnly", False) and s.get("url")]
                 if not valid:
                     valid = [s for s in streams if s.get("format") == "MPEG_4" and s.get("url")]
-
                 if valid:
-                    # انتخاب کمترین کیفیت جهت اطمینان از جا شدن در سقف ۴۸ مگابایت
                     chosen = valid[-1].get("url")
                     if chosen and download_stream_to_file(chosen, out_file, YOUTUBE_MAX_BYTES):
-                        return out_file, None
-        except Exception:
-            continue
-
-    # گام ۳: سرورهای اینویدیوس (Invidious)
-    invidious_hosts = [
-        "https://inv.nadeko.net",
-        "https://invidious.nerdvpn.de",
-        "https://yewtu.be",
-    ]
-    for inv in invidious_hosts:
-        try:
-            print(f"تلاش با سرور اینویدیوس: {inv}...")
-            r = requests.get(f"{inv}/api/v1/videos/{video_id}", headers=HEADERS, timeout=12)
-            if r.status_code == 200:
-                data = r.json()
-                formats = data.get("formatStreams", [])
-                for f in reversed(formats):
-                    d_url = f.get("url")
-                    if d_url and download_stream_to_file(d_url, out_file, YOUTUBE_MAX_BYTES):
-                        return out_file, None
+                        return out_file
         except Exception:
             continue
 
     out_file.unlink(missing_ok=True)
-    return None, "حجم ویدیو بیش از سقف مجاز (۴۸ مگابایت) است یا استریم مستقیم فعال نیست."
+    return None
 
 
 def deliver_youtube_video(video, label, handle):
@@ -392,20 +461,36 @@ def deliver_youtube_video(video, label, handle):
     if len(caption) > MAX_CAPTION_LENGTH:
         caption = caption[:MAX_CAPTION_LENGTH - 3].rstrip() + "..."
 
-    # ۱. دانلود فایل ویدیویی
-    video_path, err = download_youtube_video_external(video_id)
+    # ۱. گام نخست: تلاش برای ارسال خود فایل ویدیو (اگر زیر ۴۸ مگابایت بود)
+    video_path = download_youtube_video_external(video_id)
     if video_path and video_path.exists():
         try:
             size_mb = round(video_path.stat().st_size / (1024 * 1024), 2)
-            print(f"ویدیو با حجم {size_mb} MB دانلود شد. در حال ارسال مستقیم به تلگرام و بله...")
+            print(f"ویدیو با حجم {size_mb} MB دانلود شد. در حال ارسال مستقیم ویدیو...")
             r1 = send_video_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, video_path, caption, "Telegram")
             r2 = send_video_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, video_path, caption, "Bale")
             return any([r1, r2])
         finally:
             video_path.unlink(missing_ok=True)
 
-    # ۲. فال‌بک مطمئن: در ویدیوهای طولانی، کاور باکیفیت و لینک ارسال می‌شود
-    print(f"ویدیو به صورت فایل دانلود نشد ({err}). ارسال تصویر کاور و پیوند...")
+    # ۲. گام دوم: اگر ویدیو سنگین بود، فایل صوتی (پادکست کامل) همراه لینک ارسال شود
+    print("ویدیو با حجم مجاز یافت نشد (بیش از ۴۸ مگابایت). تلاش برای دریافت فایل صوتی...")
+    audio_path = download_youtube_audio_external(video_id)
+    if audio_path and audio_path.exists():
+        try:
+            audio_size_mb = round(audio_path.stat().st_size / (1024 * 1024), 2)
+            print(f"صوت ویدیو با حجم مناسب {audio_size_mb} MB دریافت شد. در حال ارسال پادکست...")
+            audio_caption = f"🎙 صوت کامل برنامه:\n{title}\n\n📺 منبع: YouTube ({label})\n🔗 {url}"
+            if len(audio_caption) > MAX_CAPTION_LENGTH:
+                audio_caption = audio_caption[:MAX_CAPTION_LENGTH - 3].rstrip() + "..."
+            r1 = send_audio_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, audio_path, audio_caption, title, label, "Telegram")
+            r2 = send_audio_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, audio_path, audio_caption, title, label, "Bale")
+            return any([r1, r2])
+        finally:
+            audio_path.unlink(missing_ok=True)
+
+    # ۳. گام سوم: فال‌بک تصویر کاور همراه پیوند مستقیم یوتیوب
+    print("امکان ارسال ویدیو یا صوت نبود. ارسال کاور باکیفیت و لینک...")
     thumb_path = Path(f"thumb_{video_id}.jpg")
     try:
         thumb_url = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
@@ -420,7 +505,7 @@ def deliver_youtube_video(video, label, handle):
     finally:
         thumb_path.unlink(missing_ok=True)
 
-    # ۳. فال‌بک متنی
+    # ۴. گام چهارم: در صورت در دسترس نبودن تصویر، ارسال پیام متنی
     r1 = send_message_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, caption, "Telegram")
     r2 = send_message_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, caption, "Bale")
     return any([r1, r2])
