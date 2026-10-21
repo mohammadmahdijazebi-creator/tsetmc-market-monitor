@@ -17,60 +17,48 @@ BALE_CHANNEL_ID = os.environ.get("BALE_CHANNEL_ID", "").strip()
 STATE_FILE = Path("market_monitor_state.json")
 TEHRAN_TZ = ZoneInfo("Asia/Tehran")
 
-# لیست نمادهای تحت رصد
+# -----------------------------
+# تنظیمات سایت‌ها
+# -----------------------------
+TRADERS_ARENA_MAIN = "https://tradersarena.ir/"
+METAWAVE_MAIN = "https://metawave.ir/"
+
+# لیست نمادهای تحت رصد (تریدر آرنا)
 SYMBOLS = [
-    {
-        "name": "ahrom",
-        "title": "⚡ نماد اهرم (صندوق اهرمی)",
-        "url": "https://tradersarena.ir/17914401175772326"
-    },
-    {
-        "name": "khodro",
-        "title": "🚗 نماد خودرو (ایران خودرو)",
-        "url": "https://tradersarena.ir/65883838195688438"
-    },
-    {
-        "name": "taban",
-        "title": "🏢 نماد تابان (پتروشیمی تابان فردا)",
-        "url": "https://tradersarena.ir/30714151942396396"
-    },
-    {
-        "name": "ayar",
-        "title": "🪙 نماد عیار (صندوق طلای مفید)",
-        "url": "https://tradersarena.ir/34144395039913458"
-    },
-    {
-        "name": "noghrat",
-        "title": "🥈 نماد نقراط (صندوق نقره)",
-        "url": "https://tradersarena.ir/65365726391403130"
-    }
+    {"name": "ahrom", "title": "⚡ نماد اهرم (صندوق اهرمی)", "url": "https://tradersarena.ir/17914401175772326"},
+    {"name": "khodro", "title": "🚗 نماد خودرو (ایران خودرو)", "url": "https://tradersarena.ir/65883838195688438"},
+    {"name": "taban", "title": "🏢 نماد تابان (پتروشیمی تابان فردا)", "url": "https://tradersarena.ir/30714151942396396"},
+    {"name": "ayar", "title": "🪙 نماد عیار (صندوق طلای مفید)", "url": "https://tradersarena.ir/34144395039913458"},
+    {"name": "noghrat", "title": "🥈 نماد نقراط (صندوق نقره)", "url": "https://tradersarena.ir/65365726391403130"},
 ]
 
 
-def load_last_hash():
-    """خواندن هش آخرین وضعیت تابلوی بازار"""
+def load_state():
+    """
+    state نمونه:
+    {
+      "last_tradersarena_hash": "...",
+      "last_metawave_hash": "...",
+      "updated_at": "..."
+    }
+    """
     if not STATE_FILE.exists():
-        return ""
+        return {}
     try:
-        data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-        return data.get("last_main_hash", "")
+        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
     except Exception:
-        return ""
+        return {}
 
 
-def save_last_hash(img_hash):
-    """ذخیره هش تابلوی بازار"""
+def save_state(state: dict):
     try:
-        STATE_FILE.write_text(
-            json.dumps({"last_main_hash": img_hash, "updated_at": datetime.now(TEHRAN_TZ).isoformat()}),
-            encoding="utf-8"
-        )
+        state["updated_at"] = datetime.now(TEHRAN_TZ).isoformat()
+        STATE_FILE.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
     except Exception as e:
-        print(f"خطا در ذخیره وضعیت هش: {e}")
+        print(f"خطا در ذخیره state: {e}")
 
 
 def get_file_md5(filepath):
-    """محاسبه هش محتوای تصویر جهت سنجش تغییرات تابلو"""
     hasher = hashlib.md5()
     with open(filepath, "rb") as f:
         hasher.update(f.read())
@@ -78,19 +66,17 @@ def get_file_md5(filepath):
 
 
 def is_market_time_allowed():
-    """بررسی بازه زمانی مجاز بازار: شنبه تا چهارشنبه از ۰۸:۳۰ تا ۱۸:۰۰"""
+    """شنبه تا چهارشنبه از ۰۸:۳۰ تا ۱۸:۰۰"""
     now = datetime.now(TEHRAN_TZ)
-    # در پایتون: دوشنبه=0، سه‌شنبه=1، چهارشنبه=2، پنج‌شنبه=3، جمعه=4، شنبه=5، یکشنبه=6
-    # روزهای کاری بورس ایران: شنبه(5), یکشنبه(6), دوشنبه(0), سه‌شنبه(1), چهارشنبه(2)
-    # روزهای تعطیل: پنج‌شنبه(3) و جمعه(4)
     weekday = now.weekday()
-    if weekday in (3, 4):
+
+    if weekday in (3, 4):  # پنج‌شنبه/جمعه
         print(f"[{now.strftime('%H:%M')}] امروز پنج‌شنبه یا جمعه (تعطیل) است. اجرا متوقف شد.")
         return False
 
     current_minutes = now.hour * 60 + now.minute
-    start_minutes = 8 * 60 + 30   # 08:30
-    end_minutes = 18 * 60         # 18:00
+    start_minutes = 8 * 60 + 30
+    end_minutes = 18 * 60
 
     if not (start_minutes <= current_minutes <= end_minutes):
         print(f"[{now.strftime('%H:%M')}] خارج از ساعت معاملات (۰۸:۳۰ تا ۱۸:۰۰) است. اجرا متوقف شد.")
@@ -100,12 +86,11 @@ def is_market_time_allowed():
 
 
 def send_image(image_path, caption):
-    """ارسال فایل تصویر به تلگرام و بله با امنیت و لاگ دقیق"""
     if not os.path.exists(image_path):
         print(f"File not found: {image_path}")
         return
 
-    # ارسال به تلگرام
+    # تلگرام
     if BOT_TOKEN and CHANNEL_ID:
         try:
             with open(image_path, "rb") as img:
@@ -113,16 +98,16 @@ def send_image(image_path, caption):
                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
                     data={"chat_id": CHANNEL_ID, "caption": caption},
                     files={"photo": img},
-                    timeout=45
+                    timeout=60
                 )
             if res.status_code == 200:
                 print(f"Telegram sent: {image_path}")
             else:
-                print(f"Telegram error on {image_path}: {res.text}")
+                print(f"Telegram error on {image_path}: {res.status_code} - {res.text}")
         except Exception as e:
             print(f"Telegram exception on {image_path}: {e}")
 
-    # ارسال به بله
+    # بله
     if BALE_BOT_TOKEN and BALE_CHANNEL_ID:
         try:
             with open(image_path, "rb") as img:
@@ -130,23 +115,152 @@ def send_image(image_path, caption):
                     f"https://tapi.bale.ai/bot{BALE_BOT_TOKEN}/sendPhoto",
                     data={"chat_id": BALE_CHANNEL_ID, "caption": caption},
                     files={"photo": img},
-                    timeout=45
+                    timeout=60
                 )
             if res.status_code == 200:
                 print(f"Bale sent: {image_path}")
             else:
-                print(f"Bale error on {image_path}: {res.text}")
+                print(f"Bale error on {image_path}: {res.status_code} - {res.text}")
         except Exception as e:
             print(f"Bale exception on {image_path}: {e}")
 
 
+def capture_site_3parts(page, base_name: str, caption_prefix: str, source_domain: str,
+                        scrolls=(0, 750, 1500), wait_after_load=5, wait_between=1.5):
+    """
+    سه اسکرین‌شات با اسکرول‌های مختلف می‌گیرد و ارسال می‌کند.
+    خروجی فایل‌ها: {base_name}_1.png, {base_name}_2.png, {base_name}_3.png
+    """
+    for i, y in enumerate(scrolls, start=1):
+        try:
+            page.evaluate(f"window.scrollTo(0, {int(y)});")
+            time.sleep(wait_between)
+        except Exception:
+            pass
+
+        out = f"{base_name}_{i}.png"
+        page.screenshot(path=out, full_page=False)
+        send_image(out, f"{caption_prefix} - بخش {i}\nمنبع: {source_domain}")
+
+
+def capture_metawave(page, state):
+    """
+    متاویو: اگر صفحه واقعاً تغییر نکرده باشد (هش ثابت)، ارسال انجام نمی‌شود.
+    """
+    print("Checking MetaWave Main Page for updates...")
+    try:
+        page.goto(METAWAVE_MAIN, wait_until="networkidle", timeout=60000)
+        time.sleep(6)
+
+        # اسکرین شات اول برای هش
+        first_img = "metawave_1.png"
+        page.screenshot(path=first_img, full_page=False)
+        current_hash = get_file_md5(first_img)
+
+        last_hash = state.get("last_metawave_hash", "")
+        if current_hash == last_hash:
+            print("⚠️ MetaWave آپدیت نشده است (یا بازار تعطیل رسمی/راکد است). هیچ پیامی از MetaWave ارسال نمی‌شود.")
+            return state
+
+        print("✅ MetaWave بروزرسانی شده است. در حال ارسال تصاویر...")
+        send_image(first_img, "📊 *متاویو - بخش ۱ (نمای کلی)*\nمنبع: metawave.ir")
+
+        # بخش ۲ و ۳
+        try:
+            page.evaluate("window.scrollTo(0, 850);")
+            time.sleep(2)
+        except Exception:
+            pass
+        page.screenshot(path="metawave_2.png", full_page=False)
+        send_image("metawave_2.png", "📉 *متاویو - بخش ۲ (جزئیات/نمودارها)*\nمنبع: metawave.ir")
+
+        try:
+            page.evaluate("window.scrollTo(0, 1700);")
+            time.sleep(2)
+        except Exception:
+            pass
+        page.screenshot(path="metawave_3.png", full_page=False)
+        send_image("metawave_3.png", "📋 *متاویو - بخش ۳ (ادامه صفحه)*\nمنبع: metawave.ir")
+
+        state["last_metawave_hash"] = current_hash
+        save_state(state)
+        return state
+
+    except Exception as e:
+        print(f"Error in MetaWave Main: {e}")
+        return state
+
+
+def capture_tradersarena(page, state):
+    """
+    تریدر آرنا: همان منطق قبلی + ذخیره هش جداگانه
+    """
+    print("Checking Traders Arena Main Page for updates...")
+    try:
+        page.goto(TRADERS_ARENA_MAIN, wait_until="domcontentloaded", timeout=30000)
+        time.sleep(3)
+
+        page.screenshot(path="traders_arena_1.png", full_page=False)
+        current_hash = get_file_md5("traders_arena_1.png")
+
+        last_hash = state.get("last_tradersarena_hash", "")
+        if current_hash == last_hash:
+            print("⚠️ دیتای تریدر آرنا آپدیت نشده است (یا بازار تعطیل رسمی است). هیچ پیامی ارسال نمی‌شود.")
+            return False, state
+
+        print("✅ تابلوی بازار تریدر آرنا بروزرسانی شده است. در حال ارسال تصاویر...")
+        send_image("traders_arena_1.png", "📊 *تریدرز آرنا - بخش ۱ (آمارهای کلیدی بازار)*\nمنبع: tradersarena.ir")
+
+        page.evaluate("window.scrollTo(0, 750);")
+        time.sleep(1.5)
+        page.screenshot(path="traders_arena_2.png", full_page=False)
+        send_image("traders_arena_2.png", "📉 *تریدرز آرنا - بخش ۲ (نمودارهای جریان نقدینگی)*\nمنبع: tradersarena.ir")
+
+        page.evaluate("window.scrollTo(0, 1500);")
+        time.sleep(1.5)
+        page.screenshot(path="traders_arena_3.png", full_page=False)
+        send_image("traders_arena_3.png", "📋 *تریدرز آرنا - بخش ۳ (صف‌های خرید و فروش)*\nمنبع: tradersarena.ir")
+
+        state["last_tradersarena_hash"] = current_hash
+        save_state(state)
+        return True, state
+
+    except Exception as e:
+        print(f"Error in Traders Arena Main: {e}")
+        return False, state
+
+
+def capture_symbols(page):
+    for item in SYMBOLS:
+        name = item["name"]
+        title = item["title"]
+        url = item["url"]
+
+        try:
+            print(f"Processing symbol: {name} ({url})")
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            time.sleep(3)
+
+            file_part1 = f"{name}_part1.png"
+            page.screenshot(path=file_part1, full_page=False)
+            send_image(file_part1, f"{title}\n📌 *بخش ۱ (تابلو و جزئیات بالایی)*\nمنبع: tradersarena.ir")
+
+            page.evaluate("window.scrollTo(0, 850);")
+            time.sleep(1.5)
+            file_part2 = f"{name}_part2.png"
+            page.screenshot(path=file_part2, full_page=False)
+            send_image(file_part2, f"{title}\n📌 *بخش ۲ (نمودارها و اطلاعات تکمیلی)*\nمنبع: tradersarena.ir")
+
+        except Exception as e:
+            print(f"Error processing symbol {name}: {e}")
+
+
 def capture_all():
-    # ۱. فیلتر زمانی روز و ساعت
+    # ۱) فیلتر زمانی کلی
     if not is_market_time_allowed():
         return
 
-    print("Starting market multi-symbol runner (Traders Arena)...")
-    last_hash = load_last_hash()
+    state = load_state()
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -155,82 +269,26 @@ def capture_all():
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-gpu"
-            ]
+                "--disable-gpu",
+            ],
         )
 
         context = browser.new_context(
             viewport={"width": 1400, "height": 900},
             device_scale_factor=2,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         )
         page = context.new_page()
 
-        # ==============================================================
-        # ۲. بررسی تابلوی اصلی و تست تغییرات (برای روزهای تعطیل رسمی یا ساعات راکد)
-        # ==============================================================
-        try:
-            print("Checking Traders Arena Main Page for updates...")
-            page.goto("https://tradersarena.ir/", wait_until="domcontentloaded", timeout=30000)
-            time.sleep(3)
+        print("Starting market runner (Traders Arena + MetaWave)...")
 
-            page.screenshot(path="traders_arena_1.png", full_page=False)
-            current_hash = get_file_md5("traders_arena_1.png")
+        # ۲) اول MetaWave (مستقل از TradersArena؛ اگر خطا بدهد بقیه ادامه می‌یابد)
+        state = capture_metawave(page, state)
 
-            # اگر تصویر نسبت به ۵ دقیقه قبل کوچکترین تغییری نکرده باشد (تعطیل رسمی یا عدم آپدیت)
-            if current_hash == last_hash:
-                print(f"⚠️ دیتای سایت آپدیت نشده است (یا بازار تعطیل رسمی است). هیچ پیامی ارسال نمی‌شود.")
-                browser.close()
-                return
-
-            print("✅ تابلوی بازار بروزرسانی شده است. در حال ارسال تصاویر به کانال...")
-            send_image("traders_arena_1.png", "📊 *تریدرز آرنا - بخش ۱ (آمارهای کلیدی بازار)*\nمنبع: tradersarena.ir")
-
-            page.evaluate("window.scrollTo(0, 750);")
-            time.sleep(1.5)
-            page.screenshot(path="traders_arena_2.png", full_page=False)
-            send_image("traders_arena_2.png", "📉 *تریدرز آرنا - بخش ۲ (نمودارهای جریان نقدینگی)*\nمنبع: tradersarena.ir")
-
-            page.evaluate("window.scrollTo(0, 1500);")
-            time.sleep(1.5)
-            page.screenshot(path="traders_arena_3.png", full_page=False)
-            send_image("traders_arena_3.png", "📋 *تریدرز آرنا - بخش ۳ (صف‌های خرید و فروش)*\nمنبع: tradersarena.ir")
-
-            # ذخیره هش جدید به عنوان آخرین تغییرات
-            save_last_hash(current_hash)
-
-        except Exception as e:
-            print(f"Error in Traders Arena Main: {e}")
-            browser.close()
-            return
-
-        # ==============================================================
-        # ۳. پردازش و ارسال نمادها (فقط زمانی که دیتای بازار تازه است)
-        # ==============================================================
-        for item in SYMBOLS:
-            name = item["name"]
-            title = item["title"]
-            url = item["url"]
-            
-            try:
-                print(f"Processing symbol: {name} ({url})")
-                page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                time.sleep(3)
-
-                # بخش اول نماد
-                file_part1 = f"{name}_part1.png"
-                page.screenshot(path=file_part1, full_page=False)
-                send_image(file_part1, f"{title}\n📌 *بخش ۱ (تابلو و جزئیات بالایی)*\nمنبع: tradersarena.ir")
-
-                # بخش دوم نماد
-                page.evaluate("window.scrollTo(0, 850);")
-                time.sleep(1.5)
-                file_part2 = f"{name}_part2.png"
-                page.screenshot(path=file_part2, full_page=False)
-                send_image(file_part2, f"{title}\n📌 *بخش ۲ (نمودارها و اطلاعات تکمیلی)*\nمنبع: tradersarena.ir")
-
-            except Exception as e:
-                print(f"Error processing symbol {name}: {e}")
+        # ۳) بعد TradersArena (اگر آپدیت نشده باشد، نمادها هم ارسال نشوند)
+        changed, state = capture_tradersarena(page, state)
+        if changed:
+            capture_symbols(page)
 
         browser.close()
         print("Done! All captures finished successfully.")
