@@ -1,7 +1,9 @@
 import json
 import os
 import re
+import subprocess
 import time
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -9,7 +11,7 @@ from zoneinfo import ZoneInfo
 import requests
 from bs4 import BeautifulSoup
 
-# لیست کانال‌های تلگرام شما
+# لیست کانال‌های تلگرام
 CHANNELS = [
     {"username": "MarketSummary", "label": "خلاصه بازار"},
     {"username": "rahavard365", "label": "ره‌آورد ۳۶۵"},
@@ -21,11 +23,11 @@ CHANNELS = [
     {"username": "trade_fundd", "label": "ترید فاند"},
 ]
 
-# ۳ کانال یوتیوب شما (شناسه‌های کانال برای فید RSS پایدار)
+# ۳ کانال یوتیوب مدنظر شما
 YOUTUBE_CHANNELS = [
-    {"channel_id": "UC_feghtesad_id_placeholder", "label": "اقتصاد", "handle": "@feghtesad"},
-    {"channel_id": "UC_bashgahpol_id_placeholder", "label": "باشگاه پول", "handle": "@BashgahPol"},
-    {"channel_id": "UC_aliichii_id_placeholder", "label": "علیچی", "handle": "@aliichii-tube"},
+    {"handle": "@feghtesad", "label": "اقتصاد"},
+    {"handle": "@BashgahPol", "label": "باشگاه پول"},
+    {"handle": "@aliichii-tube", "label": "علیچی"},
 ]
 
 STATE_FILE = Path("channels_state.json")
@@ -33,10 +35,10 @@ REQUEST_TIMEOUT = 40
 MAX_CAPTION_LENGTH = 1024
 MAX_TEXT_LENGTH = 4096
 
-# تنظیمات YouTube
-YOUTUBE_POLL = 1  # بررسی آخرین ویدیو در هر اجرا
-YOUTUBE_MAX_HEIGHT = 480  # کیفیت مناسب برای زیر ۵۰ مگابایت
-YOUTUBE_MAX_BYTES = 48 * 1024 * 1024  # سقف ۴۸ مگابایت برای بات تلگرام/بله
+# تنظیمات و سقف حجم ویدیوهای یوتیوب (زیر ۵۰ مگابایت برای محدودیت بات تلگرام و بله)
+YOUTUBE_POLL = 1
+YOUTUBE_MAX_HEIGHT = 480
+YOUTUBE_MAX_BYTES = 48 * 1024 * 1024
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 CHANNEL_ID = os.getenv("CHANNEL_ID", "").strip()
@@ -175,10 +177,10 @@ def send_photo_dest(endpoint, token, chat_id, image_path, caption, name):
                 timeout=REQUEST_TIMEOUT,
             )
         if res.status_code == 200:
-            print(f"[{name}] تصویر ارسال شد.")
+            print(f"[{name}] تصویر با موفقیت ارسال شد.")
             return True
         else:
-            print(f"[{name}] خطای ارسال: {res.text}")
+            print(f"[{name}] خطای ارسال تصویر: {res.text}")
             return False
     except Exception as e:
         print(f"[{name}] استثنا در ارسال تصویر: {e}")
@@ -195,10 +197,10 @@ def send_message_dest(endpoint, token, chat_id, text, name):
             timeout=REQUEST_TIMEOUT,
         )
         if res.status_code == 200:
-            print(f"[{name}] متن ارسال شد.")
+            print(f"[{name}] پیام متنی ارسال شد.")
             return True
         else:
-            print(f"[{name}] خطای ارسال: {res.text}")
+            print(f"[{name}] خطای ارسال متن: {res.text}")
             return False
     except Exception as e:
         print(f"[{name}] استثنا در ارسال متن: {e}")
@@ -217,7 +219,7 @@ def send_video_dest(endpoint, token, chat_id, video_path, caption, name):
                 timeout=600,
             )
         if res.status_code == 200:
-            print(f"[{name}] ویدیو ارسال شد.")
+            print(f"[{name}] ویدیو با موفقیت ارسال شد.")
             return True
         else:
             print(f"[{name}] خطای ارسال ویدیو: {res.text}")
@@ -227,25 +229,48 @@ def send_video_dest(endpoint, token, chat_id, video_path, caption, name):
         return False
 
 
-# توابع یوتیوب با RSS و yt-dlp
+# ==================== توابع یوتیوب ====================
+
+def get_youtube_channel_id(handle):
+    """استخراج Channel ID از صفحه کانال برای ساخت آدرس RSS"""
+    url = f"https://www.youtube.com/{handle}"
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+        if r.status_code == 200:
+            # جستجوی channelId در سورس صفحه یوتیوب
+            match = re.search(r'itemprop="channelId"\s+content="([^"]+)"', r.text)
+            if match:
+                return match.group(1)
+            match2 = re.search(r'"channelId":"([^"]+)"', r.text)
+            if match2:
+                return match2.group(1)
+    except Exception as e:
+        print(f"خطا در استخراج شناسه برای {handle}: {e}")
+    return None
+
+
 def fetch_youtube_rss_videos(handle, last_video_id, seen_ids):
     try:
-        # دریافت شناسه کانال از طریق yt-dlp به صورت خودکار برای پایداری ۱۰۰٪
-        cmd = ["yt-dlp", "--print", "channel_id", f"https://www.youtube.com/{handle}"]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        channel_id = res.stdout.strip()
+        channel_id = get_youtube_channel_id(handle)
         if not channel_id:
+            # اگر از صفحه پیدا نشد، از طریق دستور yt-dlp دریافت شود
+            cmd = ["yt-dlp", "--print", "channel_id", f"https://www.youtube.com/{handle}"]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            channel_id = res.stdout.strip()
+
+        if not channel_id:
+            print(f"شناسه کانال برای {handle} یافت نشد.")
             return []
 
         rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
         response = requests.get(rss_url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
         if response.status_code != 200:
+            print(f"خطای دریافت فید RSS ({response.status_code})")
             return []
 
-        import xml.etree.ElementTree as ET
         root = ET.fromstring(response.content)
         ns = {"a": "http://www.w3.org/2005/Atom", "yt": "http://www.youtube.com/xml/schemas/2015"}
-        
+
         videos = []
         for entry in root.findall("a:entry", ns):
             vid = entry.find("yt:videoId", ns)
@@ -257,11 +282,11 @@ def fetch_youtube_rss_videos(handle, last_video_id, seen_ids):
                 continue
             videos.append({
                 "id": video_id,
-                "title": title.text.strip() if title is not None else "جدید",
+                "title": title.text.strip() if title is not None else "ویدیو جدید",
             })
         return videos
     except Exception as e:
-        print(f"خطا در پردازش RSS یوتیوب برای {handle}: {e}")
+        print(f"خطا در پردازش فید یوتیوب {handle}: {e}")
         return []
 
 
@@ -269,13 +294,12 @@ def download_youtube_video(video_id):
     try:
         import yt_dlp
     except ImportError:
-        return None, "yt-dlp نصب نیست"
+        return None, "ماژول yt-dlp نصب نیست"
 
     url = f"https://www.youtube.com/watch?v={video_id}"
-    out_tmpl = f"temp_yt_{video_id}.%(ext)s"
     opts = {
         "format": f"bv*[height<={YOUTUBE_MAX_HEIGHT}][ext=mp4]+ba[ext=m4a]/b[height<={YOUTUBE_MAX_HEIGHT}][ext=mp4]/b",
-        "outtmpl": out_tmpl,
+        "outtmpl": f"temp_yt_{video_id}.%(ext)s",
         "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
@@ -288,7 +312,7 @@ def download_youtube_video(video_id):
         for p in Path(".").glob(f"temp_yt_{video_id}.*"):
             if p.stat().st_size > 0:
                 return p, None
-        return None, "فایل خالی یا بیش از حد بزرگ"
+        return None, "فایل ایجاد نشد یا حجم بیش از حد مجاز است"
     except Exception as e:
         for p in Path(".").glob(f"temp_yt_{video_id}.*"):
             p.unlink(missing_ok=True)
@@ -302,7 +326,7 @@ def deliver_youtube_video(video, label, handle):
 
     path, err = download_youtube_video(video["id"])
     if path is None:
-        print(f"خطا در دانلود ویدیو ({err})؛ ارسال لینک متنی.")
+        print(f"دانلود ویدیو مقدور نشد ({err})؛ ارسال لینک متنی...")
         r1 = send_message_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, text, "Telegram")
         r2 = send_message_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, text, "Bale")
         return any([r1, r2])
@@ -333,7 +357,7 @@ def process_youtube_channel(chan, channels_state):
     new_seen = list(seen_ids)
 
     for video in videos[:YOUTUBE_POLL]:
-        print(f"در حال دانلود و ارسال ویدیوی جدید: {video['title']}")
+        print(f"در حال دانلود و ارسال: {video['title']}")
         deliver_youtube_video(video, chan["label"], chan["handle"])
         new_last = video["id"]
         if video["id"] not in new_seen:
@@ -365,7 +389,7 @@ def deliver_post(post, username, label):
             temp_img.unlink(missing_ok=True)
     else:
         r1 = send_message_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, caption_or_text, "Telegram")
-        r2 = send_message_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, caption_or_text, "Telegram")
+        r2 = send_message_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, caption_or_text, "Bale")
         results.extend([r1, r2])
 
     time.sleep(2)
@@ -416,13 +440,13 @@ def process_channel(chan_info, channels_state):
 def main():
     channels_state = load_state()
 
-    # بررسی کانال‌های تلگرام
+    # ۱. بررسی کانال‌های تلگرام
     for chan in CHANNELS:
         res = process_channel(chan, channels_state)
         channels_state[chan["username"]] = res
         save_state(channels_state)
 
-    # بررسی کانال‌های یوتیوب
+    # ۲. بررسی کانال‌های یوتیوب
     for chan in YOUTUBE_CHANNELS:
         res = process_youtube_channel(chan, channels_state)
         channels_state[f"yt:{chan['handle']}"] = res
