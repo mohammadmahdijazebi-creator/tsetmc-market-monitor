@@ -22,11 +22,11 @@ CHANNELS = [
     {"username": "trade_fundd", "label": "ترید فاند"},
 ]
 
-# ۳ کانال یوتیوب مدنظر شما (با Channel ID ثابت و بدون نیاز به جست‌وجو)
+# ۳ کانال یوتیوب مدنظر
 YOUTUBE_CHANNELS = [
     {"handle": "@feghtesad", "channel_id": "UCl6-kUbADci3ZSINUcRZJcA", "label": "اقتصاد"},
     {"handle": "@BashgahPol", "channel_id": "UCfix78juvP77pMnYO0fyhMA", "label": "باشگاه پول"},
-    {"handle": "@aliichii-tube", "channel_id": "UCNZ19zmjqvZm24qhzB1pQHQ", "label": "علیچی"},
+    {"handle": "@aliichii-tube", "channel_id": "UCqUoY21eYkSj3-zEWB9gZHA", "label": "علیچی"},
 ]
 
 STATE_FILE = Path("channels_state.json")
@@ -261,6 +261,7 @@ def fetch_youtube_rss_videos(channel_id, last_video_id, seen_ids):
 
 
 def download_youtube_video(video_id):
+    """دانلود با استفاده از کلاینت‌های مجاز برای دور زدن محدودیت sign-in bot"""
     try:
         import yt_dlp
     except ImportError:
@@ -275,6 +276,18 @@ def download_youtube_video(video_id):
         "no_warnings": True,
         "noplaylist": True,
         "max_filesize": YOUTUBE_MAX_BYTES,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "ios", "web_embedded"]
+            }
+        },
+        "http_headers": {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            )
+        },
     }
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -296,7 +309,7 @@ def deliver_youtube_video(video, label, handle):
 
     path, err = download_youtube_video(video["id"])
     if path is None:
-        print(f"دانلود ویدیو مقدور نشد ({err})؛ ارسال لینک متنی...")
+        print(f"دانلود مستقیم ویدیو مقدور نشد ({err})؛ ارسال لینک متنی...")
         r1 = send_message_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, text, "Telegram")
         r2 = send_message_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, text, "Bale")
         return any([r1, r2])
