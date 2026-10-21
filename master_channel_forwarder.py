@@ -34,7 +34,7 @@ REQUEST_TIMEOUT = 45
 MAX_CAPTION_LENGTH = 1024
 MAX_TEXT_LENGTH = 4096
 
-# تنظیمات ویدیو (محدودیت حجم ۵۰ مگابایت تلگرام و بله)
+# تنظیمات ویدیو (محدودیت حجم تلگرام و بله ۵۰ مگابایت)
 YOUTUBE_POLL = 1
 YOUTUBE_MAX_BYTES = 48 * 1024 * 1024
 
@@ -292,117 +292,101 @@ def download_stream_to_file(download_url, output_path, max_bytes):
                     if chunk:
                         total += len(chunk)
                         if total > max_bytes:
-                            return False, "حجم ویدیو بیش از ۵۰ مگابایت است."
+                            print("حجم ویدیو بیش از سقف مجاز (۴۸ مگابایت) است.")
+                            return False
                         f.write(chunk)
         if output_path.exists() and output_path.stat().st_size > 1024:
-            return True, None
-        return False, "فایل دانلودی خالی است."
+            return True
+        return False
     except Exception as e:
-        return False, str(e)
+        print(f"خطا در جریان دانلود: {e}")
+        return False
 
 
-def download_youtube_video(video_id):
+def download_youtube_video_external(video_id):
     """
-    دانلود تضمینی ویدیو با ترکیب چند روش:
-    ۱. yt-dlp با کلاینت‌های ضد بات ios, tvhtml5, android
-    ۲. سرویس‌های اینویدیوس (Invidious API)
-    ۳. سرویس کبالت (Cobalt)
+    دانلود مستقیم فایل ویدیویی از طریق APIهای واسط (Piped, Cobalt, Invidious)
+    برای دور زدن محدودیت کامل دیتاسنتر گیت‌هاب اکشنز
     """
     out_file = Path(f"yt_{video_id}.mp4")
-    out_tmpl = f"yt_{video_id}.%(ext)s"
 
-    # روش ۱: yt-dlp با کلاینت‌های ضد بلاک موبایل و تلویزیون
-    clients_to_try = [
-        ["ios"],
-        ["android"],
-        ["tvhtml5"],
-        ["mweb"],
+    # ۱. استفاده از API شبکه Piped (بسیار سریع و بدون بلاک)
+    piped_instances = [
+        "https://pipedapi.kavin.rocks",
+        "https://api.piped.private.coffee",
+        "https://pipedapi.leptons.xyz",
     ]
-
-    try:
-        import yt_dlp
-        for client in clients_to_try:
-            try:
-                print(f"تلاش دانلود با yt-dlp کلاینت: {client[0]}...")
-                opts = {
-                    "format": "best[ext=mp4][height<=480]/best[height<=480]/best[ext=mp4]/best",
-                    "outtmpl": out_tmpl,
-                    "max_filesize": YOUTUBE_MAX_BYTES,
-                    "quiet": True,
-                    "no_warnings": True,
-                    "socket_timeout": 30,
-                    "extractor_args": {
-                        "youtube": {
-                            "player_client": client,
-                            "player_skip": ["webpage", "configs"],
-                        }
-                    },
-                }
-                with yt_dlp.YoutubeDL(opts) as ydl:
-                    ydl.download([f"https://www.youtube.com/watch?v={video_id}"])
-
-                # بررسی فایل تولید شده
-                for candidate in [out_file, Path(f"yt_{video_id}.webm"), Path(f"yt_{video_id}.mkv")]:
-                    if candidate.exists() and candidate.stat().st_size > 1024:
-                        return candidate, None
-            except Exception as e_client:
-                print(f"کلاینت {client[0]} با خطا مواجه شد: {e_client}")
-                continue
-    except Exception as e:
-        print(f"خطای کلی yt-dlp: {e}")
-
-    # روش ۲: استفاده از سرورهای Invidious
-    invidious_instances = [
-        "https://inv.nadeko.net",
-        "https://invidious.nerdvpn.de",
-        "https://invidious.slipfox.xyz",
-        "https://yt.artemislena.eu",
-    ]
-
-    for base in invidious_instances:
+    for p_url in piped_instances:
         try:
-            print(f"تلاش با سرور واسط: {base}...")
-            api_url = f"{base}/api/v1/videos/{video_id}"
-            res = requests.get(api_url, timeout=12, headers=HEADERS)
-            if res.status_code == 200:
-                data = res.json()
-                formats = data.get("formatStreams", [])
-                target_url = None
-                for f in reversed(formats):
-                    if "mp4" in f.get("container", "") or "mp4" in f.get("type", ""):
-                        target_url = f.get("url")
-                        break
-                if target_url:
-                    ok, msg = download_stream_to_file(target_url, out_file, YOUTUBE_MAX_BYTES)
-                    if ok:
+            print(f"تلاش با سرویس پایپد: {p_url}...")
+            r = requests.get(f"{p_url}/streams/{video_id}", headers=HEADERS, timeout=12)
+            if r.status_code == 200:
+                data = r.json()
+                streams = data.get("videoStreams", [])
+                # انتخاب استریم MP4 با کیفیت مناسب که صدا هم دارد
+                valid_streams = [s for s in streams if s.get("format") == "MPEG_4" and not s.get("videoOnly", False)]
+                if not valid_streams:
+                    valid_streams = [s for s in streams if s.get("format") == "MPEG_4"]
+                
+                if valid_streams:
+                    # انتخاب ویدیوی با کیفیت ۳۶۰ یا ۴۸۰
+                    chosen = valid_streams[0].get("url")
+                    if chosen and download_stream_to_file(chosen, out_file, YOUTUBE_MAX_BYTES):
                         return out_file, None
         except Exception:
             continue
 
-    # روش ۳: استفاده از API کبالت
-    cobalt_instances = [
+    # ۲. استفاده از سرویس‌های فعال کبالت (Cobalt API)
+    cobalt_hosts = [
         "https://api.cobalt.tools",
-        "https://cobalt-api.kwiatekm.im",
+        "https://cobalt.api.sc",
+        "https://cobalt-backend.canine.tools",
     ]
-    for c_api in cobalt_instances:
+    for c_host in cobalt_hosts:
         try:
+            print(f"تلاش با سرور کبالت: {c_host}...")
             payload = {
                 "url": f"https://www.youtube.com/watch?v={video_id}",
-                "videoQuality": "480",
-                "downloadMode": "auto",
+                "videoQuality": "360",
+                "downloadMode": "auto"
             }
-            res = requests.post(f"{c_api}/", json=payload, headers={"Accept": "application/json"}, timeout=15)
+            res = requests.post(
+                f"{c_host}/",
+                json=payload,
+                headers={"Accept": "application/json", "Content-Type": "application/json"},
+                timeout=15
+            )
             if res.status_code == 200:
-                d_url = res.json().get("url")
-                if d_url:
-                    ok, msg = download_stream_to_file(d_url, out_file, YOUTUBE_MAX_BYTES)
-                    if ok:
-                        return out_file, None
+                resp_json = res.json()
+                d_url = resp_json.get("url")
+                if d_url and download_stream_to_file(d_url, out_file, YOUTUBE_MAX_BYTES):
+                    return out_file, None
+        except Exception:
+            continue
+
+    # ۳. استفاده از API سرورهای اینویدیوس (Invidious)
+    invidious_hosts = [
+        "https://inv.nadeko.net",
+        "https://invidious.nerdvpn.de",
+        "https://invidious.jing.rocks",
+    ]
+    for inv in invidious_hosts:
+        try:
+            print(f"تلاش با سرور اینویدیوس: {inv}...")
+            r = requests.get(f"{inv}/api/v1/videos/{video_id}", headers=HEADERS, timeout=12)
+            if r.status_code == 200:
+                data = r.json()
+                formats = data.get("formatStreams", [])
+                for f in reversed(formats):
+                    if "mp4" in f.get("container", "") or "mp4" in f.get("type", ""):
+                        d_url = f.get("url")
+                        if d_url and download_stream_to_file(d_url, out_file, YOUTUBE_MAX_BYTES):
+                            return out_file, None
         except Exception:
             continue
 
     out_file.unlink(missing_ok=True)
-    return None, "تمام روش‌های دانلود توسط یوتیوب محدود شدند."
+    return None, "عدم دریافت استریم از سرورهای واسط"
 
 
 def deliver_youtube_video(video, label, handle):
@@ -413,20 +397,20 @@ def deliver_youtube_video(video, label, handle):
     if len(caption) > MAX_CAPTION_LENGTH:
         caption = caption[:MAX_CAPTION_LENGTH - 3].rstrip() + "..."
 
-    # ۱. تلاش برای دانلود ویدیو
-    video_path, err = download_youtube_video(video_id)
+    # ۱. تلاش برای دانلود ویدیو از سرورهای واسط
+    video_path, err = download_youtube_video_external(video_id)
     if video_path and video_path.exists():
         try:
             size_mb = round(video_path.stat().st_size / (1024 * 1024), 2)
-            print(f"ویدیو با حجم {size_mb} MB با موفقیت دانلود شد. در حال ارسال به کانال‌ها...")
+            print(f"ویدیو با حجم {size_mb} MB دانلود شد. در حال ارسال مستقیم به تلگرام و بله...")
             r1 = send_video_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, video_path, caption, "Telegram")
             r2 = send_video_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, video_path, caption, "Bale")
             return any([r1, r2])
         finally:
             video_path.unlink(missing_ok=True)
 
-    # ۲. فال‌بک: در صورت ناموفق بودن دانلود فایل ویدیو، ارسال عکس کاور همراه کپشن و لینک
-    print(f"دانلود ویدیو مقدور نشد ({err}). ارسال تصویر کاور...")
+    # ۲. در صورت در دسترس نبودن استریم ویدیو، ارسال کاور باکیفیت + عنوان و لینک
+    print(f"دانلود فایل ویدیو ممکن نشد ({err}). ارسال تصویر کاور...")
     thumb_path = Path(f"thumb_{video_id}.jpg")
     try:
         thumb_url = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
@@ -441,7 +425,7 @@ def deliver_youtube_video(video, label, handle):
     finally:
         thumb_path.unlink(missing_ok=True)
 
-    # ۳. آخرین فال‌بک: ارسال متن خالص
+    # ۳. فال‌بک نهایی: ارسال متن
     r1 = send_message_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, caption, "Telegram")
     r2 = send_message_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, caption, "Bale")
     return any([r1, r2])
