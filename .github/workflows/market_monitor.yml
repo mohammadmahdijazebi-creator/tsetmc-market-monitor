@@ -2,7 +2,7 @@ name: Market Monitor Run
 
 on:
   schedule:
-    # اجرا هر 5 دقیقه در ساعات بازار (پشتیبان)
+    # اجرا هر ۵ دقیقه در ساعات بازار (بر مبنای ساعت UTC)
     - cron: '*/5 5-14 * * 0-4'
   workflow_dispatch:
 
@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests playwright
+          pip install requests playwright beautifulsoup4
           playwright install chromium
 
       - name: Run Market Monitor Script
@@ -46,5 +46,7 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           if [ -f market_monitor_state.json ]; then
             git add market_monitor_state.json
-            git diff --staged --quiet || (git commit -m "chore: update market hash state" && git push)
+            git diff --staged --quiet || git commit -m "chore: update market hash state"
+            git pull --rebase origin main || (git stash && git pull --rebase origin main && git stash pop || true)
+            git push origin main
           fi
