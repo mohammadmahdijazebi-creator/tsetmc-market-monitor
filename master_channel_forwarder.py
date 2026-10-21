@@ -22,7 +22,7 @@ CHANNELS = [
     {"username": "trade_fundd", "label": "ترید فاند"},
 ]
 
-# ۳ کانال یوتیوب مدنظر
+# کانال‌های یوتیوب
 YOUTUBE_CHANNELS = [
     {"handle": "@feghtesad", "channel_id": "UCl6-kUbADci3ZSINUcRZJcA", "label": "اقتصاد"},
     {"handle": "@BashgahPol", "channel_id": "UCfix78juvP77pMnYO0fyhMA", "label": "باشگاه پول"},
@@ -34,7 +34,7 @@ REQUEST_TIMEOUT = 40
 MAX_CAPTION_LENGTH = 1024
 MAX_TEXT_LENGTH = 4096
 
-# تنظیمات و سقف حجم ویدیوهای یوتیوب (زیر ۵۰ مگابایت برای محدودیت بات تلگرام و بله)
+# تنظیمات و سقف حجم ویدیوهای یوتیوب (زیر ۵۰ مگابایت)
 YOUTUBE_POLL = 1
 YOUTUBE_MAX_HEIGHT = 480
 YOUTUBE_MAX_BYTES = 48 * 1024 * 1024
@@ -230,10 +230,35 @@ def send_video_dest(endpoint, token, chat_id, video_path, caption, name):
 
 # ==================== توابع یوتیوب ====================
 
-def fetch_youtube_rss_videos(channel_id, last_video_id, seen_ids):
+def resolve_youtube_channel_id(handle):
+    """استخراج شناسه کانال در صورت 404 بودن شناسه اولیه"""
+    try:
+        url = f"https://www.youtube.com/{handle}"
+        r = requests.get(url, headers=HEADERS, timeout=20)
+        if r.status_code == 200:
+            m = re.search(r'href="https://www\.youtube\.com/channel/([^"]+)"', r.text)
+            if m:
+                return m.group(1)
+            m = re.search(r'"channelId":"([^"]+)"', r.text)
+            if m:
+                return m.group(1)
+    except Exception:
+        pass
+    return None
+
+
+def fetch_youtube_rss_videos(channel_id, handle, last_video_id, seen_ids):
     try:
         rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
         response = requests.get(rss_url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+
+        # اگر 404 داد، تلاش مجدد برای پیدا کردن شناسه واقعی از روی Handle
+        if response.status_code == 404 and handle:
+            real_id = resolve_youtube_channel_id(handle)
+            if real_id and real_id != channel_id:
+                rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={real_id}"
+                response = requests.get(rss_url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+
         if response.status_code != 200:
             print(f"خطای دریافت فید RSS ({response.status_code})")
             return []
@@ -256,44 +281,53 @@ def fetch_youtube_rss_videos(channel_id, last_video_id, seen_ids):
             })
         return videos
     except Exception as e:
-        print(f"خطا در پردازش فید یوتیوب {channel_id}: {e}")
+        print(f"خطا در پردازش فید یوتیوب: {e}")
         return []
 
 
 def download_youtube_video(video_id):
-    """دانلود با استفاده از کلاینت‌های مجاز برای دور زدن محدودیت sign-in bot"""
+    """دانلود با استفاده از کلاینت‌های mweb/tv جهت دور زدن قطعی bot detection"""
     try:
         import yt_dlp
     except ImportError:
         return None, "ماژول yt-dlp نصب نیست"
 
     url = f"https://www.youtube.com/watch?v={video_id}"
+    out_pattern = f"temp_yt_{video_id}.%(ext)s"
+
+    # آرگومان‌های پیشرفته برای فریب الگوریتم ضدربات یوتیوب در گیت‌هاب اکشنز
     opts = {
-        "format": f"bv*[height<={YOUTUBE_MAX_HEIGHT}][ext=mp4]+ba[ext=m4a]/b[height<={YOUTUBE_MAX_HEIGHT}][ext=mp4]/b",
-        "outtmpl": f"temp_yt_{video_id}.%(ext)s",
+        "format": f"bestvideo[height<={YOUTUBE_MAX_HEIGHT}][ext=mp4]+bestaudio[ext=m4a]/best[height<={YOUTUBE_MAX_HEIGHT}]/best",
+        "outtmpl": out_pattern,
         "merge_output_format": "mp4",
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
         "max_filesize": YOUTUBE_MAX_BYTES,
+        "socket_timeout": 30,
+        "retries": 3,
         "extractor_args": {
             "youtube": {
-                "player_client": ["android", "ios", "web_embedded"]
+                # استفاده از کلاینت‌های تلوزیونی و موبایل وب که کمترین سخت‌گیری احراز هویت را دارند
+                "player_client": ["mweb", "tv", "android"],
+                "player_skip": ["webpage", "configs"],
             }
         },
         "http_headers": {
             "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            )
+                "Mozilla/5.0 (iPad; CPU OS 16_6 like Mac OS X) "
+                "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1"
+            ),
+            "Accept-Language": "en-US,en;q=0.9",
         },
     }
+
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([url])
+
         for p in Path(".").glob(f"temp_yt_{video_id}.*"):
-            if p.stat().st_size > 0:
+            if p.is_file() and p.stat().st_size > 0:
                 return p, None
         return None, "فایل ایجاد نشد یا حجم بیش از حد مجاز است"
     except Exception as e:
@@ -331,7 +365,7 @@ def process_youtube_channel(chan, channels_state):
     print(f"\n==========================================")
     print(f"بررسی YouTube ({chan['label']} - {chan['handle']})")
 
-    videos = fetch_youtube_rss_videos(chan["channel_id"], last_video_id, seen_ids)
+    videos = fetch_youtube_rss_videos(chan["channel_id"], chan["handle"], last_video_id, seen_ids)
     if not videos:
         print("هیچ ویدیوی جدیدی وجود ندارد.")
         return {"last_video_id": last_video_id, "seen_ids": seen_ids}
