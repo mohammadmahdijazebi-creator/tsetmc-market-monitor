@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import subprocess
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -34,9 +35,9 @@ REQUEST_TIMEOUT = 45
 MAX_CAPTION_LENGTH = 1024
 MAX_TEXT_LENGTH = 4096
 
-# تنظیمات ویدیو (محدودیت حجم تلگرام و بله ۵۰ مگابایت)
+# تنظیمات ویدیو (محدودیت سقف تلگرام و بله ۵۰ مگابایت است)
 YOUTUBE_POLL = 1
-YOUTUBE_MAX_BYTES = 48 * 1024 * 1024
+YOUTUBE_MAX_BYTES = 48 * 1024 * 1024  # 48 MB
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 CHANNEL_ID = os.getenv("CHANNEL_ID", "").strip()
@@ -227,7 +228,7 @@ def send_video_dest(endpoint, token, chat_id, video_path, caption, name):
         return False
 
 
-# ==================== توابع یوتیوب ====================
+# ==================== پردازش یوتیوب ====================
 
 def resolve_youtube_channel_id(handle):
     try:
@@ -284,7 +285,6 @@ def fetch_youtube_rss_videos(channel_id, handle, last_video_id, seen_ids):
 
 def download_stream_to_file(download_url, output_path, max_bytes):
     try:
-        # افزایش timeout دانلود و ذخیره بهینه
         with requests.get(download_url, headers=HEADERS, stream=True, timeout=180) as r:
             r.raise_for_status()
             total = 0
@@ -300,64 +300,79 @@ def download_stream_to_file(download_url, output_path, max_bytes):
             return True
         return False
     except Exception as e:
-        print(f"خطا در استریم دانلود: {e}")
+        print(f"خطا در دانلود استریم: {e}")
         return False
 
 
+def try_ytdlp_with_fallback(video_id, out_file):
+    """تلاش با yt-dlp کلاینت tv و فرمت فشرده کمتر از ۴۸ مگابایت"""
+    cmd = [
+        "yt-dlp",
+        "--extractor-args", "youtube:player_client=tv_embedded,web_embedded",
+        "--no-playlist",
+        "-f", "b[filesize<48M]/w[filesize<48M]/18/worst[ext=mp4]",
+        "--max-filesize", "48M",
+        "-o", str(out_file),
+        f"https://www.youtube.com/watch?v={video_id}"
+    ]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+        if p.returncode == 0 and out_file.exists() and out_file.stat().st_size > 1024:
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def download_youtube_video_external(video_id):
-    """
-    دانلود مستقیم فایل ویدیویی از طریق سرورهای فعال Piped, Cobalt و Invidious
-    """
     out_file = Path(f"yt_{video_id}.mp4")
 
-    # ۱. سرورهای پایدار و فعال Piped API
+    # گام ۱: تست با yt-dlp کلاینت tv_embedded (اغلب برای یوتیوب‌های آموزشی با حجم کم مستقیم کار می‌کند)
+    print("بررسی امکان دانلود مستقیم با حجم مجاز...")
+    if try_ytdlp_with_fallback(video_id, out_file):
+        return out_file, None
+
+    # گام ۲: سرورهای فعال Piped API
     piped_instances = [
-        "https://piped-api.lunar.icu",
-        "https://api.piped.privacydev.net",
-        "https://pipedapi.drgns.space",
         "https://pipedapi.leptons.xyz",
+        "https://api.piped.privacydev.net",
+        "https://piped-api.lunar.icu",
+        "https://pipedapi.drgns.space",
     ]
     for p_url in piped_instances:
         try:
             print(f"تلاش با سرور پایپد: {p_url}...")
-            r = requests.get(f"{p_url}/streams/{video_id}", headers=HEADERS, timeout=15)
+            r = requests.get(f"{p_url}/streams/{video_id}", headers=HEADERS, timeout=12)
             if r.status_code == 200:
                 data = r.json()
                 streams = data.get("videoStreams", [])
                 
-                # ابتدا فرمت‌های MP4 ترکیبی (تصویر + صدا)
-                progressive = [
-                    s for s in streams 
-                    if s.get("format") == "MPEG_4" and not s.get("videoOnly", False) and s.get("url")
-                ]
-                
-                target_url = None
-                if progressive:
-                    target_url = progressive[0].get("url")
-                elif streams:
-                    # انتخاب ویدیوی کیفیت ۳۶۰ یا ۴۸۰
-                    target_url = streams[0].get("url")
+                # به دنبال کم‌حجم‌ترین کیفیت سازگار با تلگرام (360p یا 240p)
+                valid = [s for s in streams if s.get("format") == "MPEG_4" and not s.get("videoOnly", False) and s.get("url")]
+                if not valid:
+                    valid = [s for s in streams if s.get("format") == "MPEG_4" and s.get("url")]
 
-                if target_url and download_stream_to_file(target_url, out_file, YOUTUBE_MAX_BYTES):
-                    return out_file, None
+                if valid:
+                    # انتخاب کمترین کیفیت جهت اطمینان از جا شدن در سقف ۴۸ مگابایت
+                    chosen = valid[-1].get("url")
+                    if chosen and download_stream_to_file(chosen, out_file, YOUTUBE_MAX_BYTES):
+                        return out_file, None
         except Exception:
             continue
 
-    # ۲. سرورهای اینویدیوس (Invidious API)
+    # گام ۳: سرورهای اینویدیوس (Invidious)
     invidious_hosts = [
-        "https://invidious.asir.dev",
-        "https://yewtu.be",
-        "https://invidious.nerdvpn.de",
         "https://inv.nadeko.net",
+        "https://invidious.nerdvpn.de",
+        "https://yewtu.be",
     ]
     for inv in invidious_hosts:
         try:
             print(f"تلاش با سرور اینویدیوس: {inv}...")
-            r = requests.get(f"{inv}/api/v1/videos/{video_id}", headers=HEADERS, timeout=15)
+            r = requests.get(f"{inv}/api/v1/videos/{video_id}", headers=HEADERS, timeout=12)
             if r.status_code == 200:
                 data = r.json()
                 formats = data.get("formatStreams", [])
-                # فرمت ۳۶۰p مناسب حجم کم و سازگاری با تلگرام
                 for f in reversed(formats):
                     d_url = f.get("url")
                     if d_url and download_stream_to_file(d_url, out_file, YOUTUBE_MAX_BYTES):
@@ -365,36 +380,8 @@ def download_youtube_video_external(video_id):
         except Exception:
             continue
 
-    # ۳. سرورهای کبالت (Cobalt Instances)
-    cobalt_hosts = [
-        "https://api.cobalt.tools",
-        "https://cobalt.api.sc",
-        "https://cobalt-backend.canine.tools",
-    ]
-    for c_host in cobalt_hosts:
-        try:
-            print(f"تلاش با سرور کبالت: {c_host}...")
-            payload = {
-                "url": f"https://www.youtube.com/watch?v={video_id}",
-                "videoQuality": "360",
-                "downloadMode": "auto"
-            }
-            res = requests.post(
-                f"{c_host}/",
-                json=payload,
-                headers={"Accept": "application/json", "Content-Type": "application/json"},
-                timeout=18
-            )
-            if res.status_code == 200:
-                resp_json = res.json()
-                d_url = resp_json.get("url")
-                if d_url and download_stream_to_file(d_url, out_file, YOUTUBE_MAX_BYTES):
-                    return out_file, None
-        except Exception:
-            continue
-
     out_file.unlink(missing_ok=True)
-    return None, "عدم دریافت استریم از سرورهای واسط"
+    return None, "حجم ویدیو بیش از سقف مجاز (۴۸ مگابایت) است یا استریم مستقیم فعال نیست."
 
 
 def deliver_youtube_video(video, label, handle):
@@ -405,20 +392,20 @@ def deliver_youtube_video(video, label, handle):
     if len(caption) > MAX_CAPTION_LENGTH:
         caption = caption[:MAX_CAPTION_LENGTH - 3].rstrip() + "..."
 
-    # ۱. تلاش برای دریافت و ارسال خود فایل ویدیو
+    # ۱. دانلود فایل ویدیویی
     video_path, err = download_youtube_video_external(video_id)
     if video_path and video_path.exists():
         try:
             size_mb = round(video_path.stat().st_size / (1024 * 1024), 2)
-            print(f"ویدیو با حجم {size_mb} MB دریافت شد. در حال ارسال ویدیوی کامل به تلگرام و بله...")
+            print(f"ویدیو با حجم {size_mb} MB دانلود شد. در حال ارسال مستقیم به تلگرام و بله...")
             r1 = send_video_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, video_path, caption, "Telegram")
             r2 = send_video_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, video_path, caption, "Bale")
             return any([r1, r2])
         finally:
             video_path.unlink(missing_ok=True)
 
-    # ۲. در صورتی که تمام سرویس‌ها موقتاً آفلاین بودند، کاور و لینک ارسال می‌شود تا پیام از دست نرود
-    print(f"دانلود فایل ویدیو ممکن نشد ({err}). ارسال تصویر کاور...")
+    # ۲. فال‌بک مطمئن: در ویدیوهای طولانی، کاور باکیفیت و لینک ارسال می‌شود
+    print(f"ویدیو به صورت فایل دانلود نشد ({err}). ارسال تصویر کاور و پیوند...")
     thumb_path = Path(f"thumb_{video_id}.jpg")
     try:
         thumb_url = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
@@ -433,7 +420,7 @@ def deliver_youtube_video(video, label, handle):
     finally:
         thumb_path.unlink(missing_ok=True)
 
-    # ۳. فال‌بک نهایی: ارسال متن
+    # ۳. فال‌بک متنی
     r1 = send_message_dest("https://api.telegram.org/bot", BOT_TOKEN, CHANNEL_ID, caption, "Telegram")
     r2 = send_message_dest("https://tapi.bale.ai/bot", BALE_BOT_TOKEN, BALE_CHANNEL_ID, caption, "Bale")
     return any([r1, r2])
