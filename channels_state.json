@@ -9,9 +9,10 @@
       "seen_ids": []
     },
     "rasadkhoneh": {
-      "last_id": 7048,
+      "last_id": 7049,
       "seen_ids": [
-        7048
+        7048,
+        7049
       ]
     },
     "parsistahlil": {
@@ -1396,9 +1397,8 @@
       "last_video_id": "R_TpsBDUCCk"
     },
     "bourse24ir": {
-      "last_id": 456160,
+      "last_id": 456161,
       "seen_ids": [
-        455936,
         455937,
         455938,
         455939,
@@ -1597,7 +1597,8 @@
         456156,
         456157,
         456159,
-        456160
+        456160,
+        456161
       ]
     },
     "BourseNews": {
